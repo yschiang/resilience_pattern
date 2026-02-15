@@ -1,0 +1,33 @@
+# Scenario artifacts
+artifacts/
+
+# Logs
+*.log
+
+# Prometheus exports
+*.prom
+
+# Docker artifacts
+*.tar
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+target/
+build/
+*.class
+*.jar
+!gradle-wrapper.jar
+
+# Temporary files
+/tmp/
+*.tmp
