@@ -5,7 +5,7 @@ Demonstration of resilience patterns for Spring Boot services calling downstream
 ## Architecture
 
 - **Application A**: Spring Boot REST API (2 pods) - calls downstream B via gRPC
-- **Application B**: C++ gRPC service (3 pods, single-threaded) - exposes gRPC API and metrics
+- **Application B**: Go gRPC service (3 pods, single-threaded) - exposes gRPC API and metrics
 
 ### Key Components
 
@@ -65,7 +65,7 @@ kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
 .
 ├── apps/
 │   ├── app-a/          # Spring Boot REST API
-│   └── app-b/          # C++ gRPC service
+│   └── app-b/          # Go gRPC service
 ├── chart/              # Helm chart
 ├── scripts/            # Build and deployment scripts
 ├── tests/              # Verification scripts
