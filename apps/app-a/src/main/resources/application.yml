@@ -1,0 +1,21 @@
+server:
+  port: 8080
+
+b:
+  service:
+    url: ${B_SERVICE_URL:localhost:50051}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    com.demo.appa: INFO
+    io.grpc: WARN

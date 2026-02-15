@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package demo.v1;
+
+option go_package = "app-b/gen";
+option java_package = "com.demo.grpc";
+option java_multiple_files = true;
+
+service DemoService {
+  rpc Work(WorkRequest) returns (WorkReply);
+}
+
+message WorkRequest {
+  string id = 1;
+}
+
+message WorkReply {
+  bool ok = 1;
+  string code = 2;
+  int64 latency_ms = 3;
+}

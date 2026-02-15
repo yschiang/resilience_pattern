@@ -1,0 +1,13 @@
+# Scenario S1: Overload scenario
+# Tests behavior when B is overloaded with high QPS
+
+appB:
+  env:
+    - name: B_DELAY_MS
+      value: "200"  # High delay to create overload condition
+
+# Load generation parameters (for scenario runner):
+# qps: 200           # requests per second
+# concurrency: 80    # concurrent requests
+# duration: 60s      # test duration
+# ramp: 10s          # ramp-up time

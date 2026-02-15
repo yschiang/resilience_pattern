@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.appA.name }}
+  labels:
+    app: {{ .Values.appA.name }}
+spec:
+  replicas: {{ .Values.appA.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.appA.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.appA.name }}
+    spec:
+      containers:
+      - name: {{ .Values.appA.name }}
+        image: "{{ .Values.appA.image.repository }}:{{ .Values.appA.image.tag }}"
+        imagePullPolicy: {{ .Values.appA.image.pullPolicy }}
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        {{- range .Values.appA.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5

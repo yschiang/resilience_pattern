@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.appB.name }}
+  labels:
+    app: {{ .Values.appB.name }}
+spec:
+  replicas: {{ .Values.appB.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.appB.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.appB.name }}
+    spec:
+      containers:
+      - name: {{ .Values.appB.name }}
+        image: "{{ .Values.appB.image.repository }}:{{ .Values.appB.image.tag }}"
+        imagePullPolicy: {{ .Values.appB.image.pullPolicy }}
+        ports:
+        - containerPort: 50051
+          name: grpc
+        - containerPort: 8080
+          name: metrics
+        env:
+        {{- range .Values.appB.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5

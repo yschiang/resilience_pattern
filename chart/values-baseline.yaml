@@ -1,0 +1,18 @@
+# Baseline configuration (no resilience patterns)
+# Used for baseline measurements in S1 and S4 scenarios
+
+resilience:
+  enabled: false
+  # Baseline: no deadline, no bulkhead, no circuit breaker
+
+appA:
+  env:
+    - name: B_SERVICE_URL
+      value: "b-service:50051"
+    - name: RESILIENCE_ENABLED
+      value: "false"
+
+appB:
+  env:
+    - name: B_DELAY_MS
+      value: "5"
