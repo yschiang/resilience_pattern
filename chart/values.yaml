@@ -1,0 +1,28 @@
+appA:
+  name: app-a
+  replicas: 2
+  image:
+    repository: app-a
+    tag: dev
+    pullPolicy: IfNotPresent
+  service:
+    name: a-service
+    port: 8080
+  env:
+    - name: B_SERVICE_URL
+      value: "b-service:50051"
+
+appB:
+  name: app-b
+  replicas: 3
+  image:
+    repository: app-b
+    tag: dev
+    pullPolicy: IfNotPresent
+  service:
+    name: b-service
+    grpcPort: 50051
+    metricsPort: 8080
+  env:
+    - name: B_DELAY_MS
+      value: "5"
