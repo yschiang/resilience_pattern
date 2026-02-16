@@ -27,7 +27,7 @@ RUN go mod tidy && \
 # Runtime image
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates curl
 
 # Copy built binary
 COPY --from=builder /app-b /usr/local/bin/app-b

@@ -13,7 +13,7 @@
 | Isolate | Failure impacts only the affected downstream | one downstream drags the whole service | per-downstream bulkhead + breaker | per-downstream labels |
 | Recover | Connection failure recovers quickly | UNAVAILABLE burst persists | self-heal + backoff, return to steady state fast | recovery time, UNAVAILABLE curve |
 | Diagnose | Errors are semantically readable | everything looks like 500/timeout | taxonomy: DEADLINE / UNAVAILABLE / QUEUE_FULL / CIRCUIT_OPEN | `errors_total{code}` + logs |
-| Verify | One-command drill | too many manual steps, not reproducible | `run_scenario.sh` produces evidence | complete `artifacts/` |
+| Verify | One-command drill | too many manual steps, not reproducible | `run_scenario.sh` produces evidence | complete `tmp/artifacts/` |
 
 ---
 
@@ -292,7 +292,7 @@ tc qdisc del dev eth0 root
 
 ### 6.1 Artifacts layout (must generate)
 ```
-artifacts/
+tmp/artifacts/
   S1/
     baseline/
       fortio.txt
@@ -357,7 +357,7 @@ artifacts/
 | T09 | Scenario runner (S1 baseline first) | T08, T03 | `run_scenario.sh S1 baseline` runs load and collects artifacts (A prom/log + B metrics + fortio) |
 
 **Exit criteria**
-- `artifacts/S1/baseline/` exists with required files
+- `tmp/artifacts/S1/baseline/` exists with required files
 - Can explain baseline pain with numbers
 
 ---

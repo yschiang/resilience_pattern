@@ -32,7 +32,7 @@ Script tasks: run script + show artifacts count
 - Helm: `chart/`
 - Scripts: `scripts/`
 - Tests: `tests/`
-- Artifacts: `artifacts/` (gitignored)
+- Artifacts: `tmp/artifacts/` (gitignored under tmp/)
 - Proto: `proto/`
 
 ## Proto Contract

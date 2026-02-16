@@ -26,7 +26,7 @@ kubectl get pods -n demo | grep -E "app-a|app-b" | wc -l
 ```bash
 # Example for scenario task
 ./scripts/run_scenario.sh S1 baseline
-ls artifacts/S1/baseline/ | wc -l
+ls tmp/artifacts/S1/baseline/ | wc -l
 ```
 
 **GATE:** All proofs must pass. If ANY fail:
@@ -76,13 +76,13 @@ grep -E "grpcPort|metricsPort" chart/values-common.yaml
 ### Step 4: Verify Artifacts (If Applicable)
 For scenario tasks (T09A/B/C):
 ```bash
-ls artifacts/<scenario>/<mode>/ | wc -l
+ls tmp/artifacts/<scenario>/<mode>/ | wc -l
 # Expected: 8 files (1 fortio + 2 A prom + 2 A log + 3 B metrics)
 
-ls artifacts/<scenario>/<mode>/a-*.prom | wc -l
+ls tmp/artifacts/<scenario>/<mode>/a-*.prom | wc -l
 # Expected: 2 (A=2 pods)
 
-ls artifacts/<scenario>/<mode>/b-*.metrics | wc -l
+ls tmp/artifacts/<scenario>/<mode>/b-*.metrics | wc -l
 # Expected: 3 (B=3 pods)
 ```
 

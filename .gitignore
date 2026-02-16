@@ -1,5 +1,5 @@
-# Scenario artifacts
-artifacts/
+# Working artifacts (now under tmp/)
+# artifacts/ - deprecated, moved to tmp/artifacts/
 
 # Logs
 *.log
@@ -29,7 +29,7 @@ build/
 !gradle-wrapper.jar
 
 # Temporary files
-/tmp/
+tmp/
 *.tmp
 
 # Claude Code session data
