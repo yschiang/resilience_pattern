@@ -131,6 +131,171 @@ If state is still "OPEN":
 
 ---
 
+## Pull Request Workflow (If Applicable)
+
+### When to Create a PR vs Direct Commit
+
+**Direct commit to main:**
+- Documentation updates (README, docs/)
+- Minor fixes (<10 lines changed)
+- Bootstrap tasks (T01-style)
+- No review needed
+
+**Create PR for review:**
+- New features (app code, scripts)
+- Infrastructure changes (Helm charts, config)
+- Multi-file changes (>3 files)
+- Anything requiring architect review
+
+---
+
+### PR Merge Policy — Maintainer Merges, Not Developer
+
+**HARD RULE:** Developer does NOT merge their own PR (ever).
+
+**Default Workflow:**
+1. **Developer:** Creates PR, posts DoD proofs in PR comments
+2. **Architect:** Reviews PR, approves or requests changes
+3. **Maintainer (User):** Merges PR after approval ✅
+
+**Delegated Workflow (Optional):**
+- Maintainer can delegate merge authority to Architect
+- Architect merges approved PRs automatically
+- Delegation syntax: User says "Architect, merge approved PRs" or "merge this PR"
+
+**Why maintainer controls merge:**
+- Maintains final control over main branch
+- Chooses merge strategy (squash/rebase/merge)
+- Ensures timing aligns with project milestones
+- Clear separation: implement → review → integrate
+
+**Merge Authority Matrix:**
+| Role | Can Merge? | Conditions |
+|------|-----------|------------|
+| Developer | ❌ Never | Hard rule - cannot merge own PR |
+| Architect | ✅ If delegated | Only when Maintainer grants authority |
+| Maintainer | ✅ Always | Default merge authority |
+
+---
+
+### Developer Responsibilities After PR Approval
+
+When architect approves your PR:
+
+```bash
+# 1. Verify approval status
+gh pr view <PR-number> --json reviews
+
+# 2. Notify maintainer (if not watching)
+# Post comment or ping maintainer
+
+# 3. DO NOT MERGE - Wait for maintainer
+
+# 4. After maintainer merges, verify
+gh pr view <PR-number> --json state
+# Expected: "state": "MERGED"
+
+# 5. Update local main
+git checkout master
+git pull origin master
+
+# 6. Verify your commit is on main
+git log --oneline -5
+```
+
+**Developer Checklist After PR Approval:**
+- [ ] All requested changes addressed
+- [ ] DoD proofs posted to PR comments
+- [ ] Architect approval received
+- [ ] Maintainer notified (comment: "Ready to merge")
+- [ ] **DO NOT CLICK MERGE** — wait for maintainer
+- [ ] After merge: update local master branch
+
+---
+
+### Architect Responsibilities When Delegated Merge Authority
+
+When Maintainer delegates merge authority (says "merge this PR" or "merge approved PRs"):
+
+**Pre-Merge Verification:**
+```bash
+# 1. Verify PR is approved
+gh pr view <PR> --json reviews,reviewDecision
+# Expected: "reviewDecision": "APPROVED"
+
+# 2. Verify all checks pass (if applicable)
+gh pr checks <PR>
+
+# 3. Verify no merge conflicts
+gh pr view <PR> --json mergeable
+# Expected: "mergeable": "MERGEABLE"
+```
+
+**Merge Execution:**
+```bash
+# Default: Use squash for clean history
+gh pr merge <PR> --squash --delete-branch
+
+# Confirm merge
+gh pr view <PR> --json state
+# Expected: "state": "MERGED"
+```
+
+**Post-Merge Actions:**
+```bash
+# 1. Update local master
+git checkout master
+git pull origin master
+
+# 2. Verify commit on master
+git log --oneline -3
+
+# 3. Confirm with Maintainer
+# Post: "✅ PR #<N> merged to master (squashed)"
+```
+
+**Architect Checklist When Delegated:**
+- [ ] Approval verified (not just commented "LGTM")
+- [ ] No merge conflicts
+- [ ] All CI checks pass (if applicable)
+- [ ] Squash strategy used (unless instructed otherwise)
+- [ ] Branch deleted after merge
+- [ ] Maintainer notified of merge completion
+
+**IMPORTANT:** If unsure about merging, ask Maintainer first. Better to ask than to merge incorrectly.
+
+---
+
+### Merge Strategy Guide (For Maintainer & Architect)
+
+**Squash (Recommended for most PRs):**
+```bash
+gh pr merge <PR> --squash
+```
+- Combines all commits into one
+- Clean history
+- Good for: feature PRs with multiple commits
+
+**Rebase (Preserve commit history):**
+```bash
+gh pr merge <PR> --rebase
+```
+- Preserves individual commits
+- Linear history
+- Good for: PRs with well-crafted commits
+
+**Merge Commit (Default):**
+```bash
+gh pr merge <PR> --merge
+```
+- Creates merge commit
+- Preserves full branch history
+- Good for: Release branches, major features
+
+**For this project:** Use **squash** for most PRs unless commits are individually valuable.
+
+---
+
 ## Final Checklist Before Close
 - [ ] All DoD proofs re-run and passed (Step 1)
 - [ ] Commit message quality verified (Step 2)
