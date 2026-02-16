@@ -137,7 +137,7 @@ kubectl -n demo logs <pod-name> | grep -i UNAVAILABLE
 **First proof:**
 ```bash
 ./scripts/run_scenario.sh S4 baseline
-grep -i UNAVAILABLE artifacts/S4/baseline/a-*.log
+grep -i UNAVAILABLE tmp/artifacts/S4/baseline/a-*.log
 ```
 **Unlocks:** T11 (verification needs S4 artifacts)
 

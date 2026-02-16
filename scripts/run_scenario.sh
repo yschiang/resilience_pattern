@@ -27,7 +27,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 CHART_DIR="$REPO_ROOT/chart"
-ARTIFACTS_DIR="$REPO_ROOT/artifacts/$SCENARIO/$MODE"
+ARTIFACTS_DIR="$REPO_ROOT/tmp/artifacts/$SCENARIO/$MODE"
 NAMESPACE="demo"
 
 echo "==> Running scenario: $SCENARIO, mode: $MODE"

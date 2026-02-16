@@ -3,7 +3,7 @@
 ## Purpose
 Make demo runs **reproducible and evidence-driven**:
 - One command runs a scenario (S1 or S4) in a mode (baseline/resilient)
-- Produces `artifacts/<scenario>/<mode>/...` with logs/metrics/load output
+- Produces `tmp/artifacts/<scenario>/<mode>/...` with logs/metrics/load output
 
 ## Inputs
 - Scenario: `S1` or `S4`
@@ -17,10 +17,10 @@ Make demo runs **reproducible and evidence-driven**:
 ## Outputs
 - `scripts/run_scenario.sh`
 - Artifacts folder:
-  - `artifacts/S1/baseline/*`
-  - `artifacts/S1/resilient/*`
-  - `artifacts/S4/baseline/*`
-  - `artifacts/S4/resilient/*`
+  - `tmp/artifacts/S1/baseline/*`
+  - `tmp/artifacts/S1/resilient/*`
+  - `tmp/artifacts/S4/baseline/*`
+  - `tmp/artifacts/S4/resilient/*`
 
 Minimum artifact set per run:
 - `fortio.txt`
@@ -46,12 +46,12 @@ Minimum artifact set per run:
 bash scripts/run_scenario.sh S1 baseline
 
 # check artifacts exist
-find artifacts/S1/baseline -maxdepth 1 -type f | sort
+find tmp/artifacts/S1/baseline -maxdepth 1 -type f | sort
 
 # quick sanity: ensure key files exist
-ls artifacts/S1/baseline/fortio.txt
-ls artifacts/S1/baseline/a-*.prom
-ls artifacts/S1/baseline/b-*.metrics
+ls tmp/artifacts/S1/baseline/fortio.txt
+ls tmp/artifacts/S1/baseline/a-*.prom
+ls tmp/artifacts/S1/baseline/b-*.metrics
 ```
 
 ### Expected

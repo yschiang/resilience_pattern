@@ -115,7 +115,7 @@ Script tasks: run script + show artifacts count
 - Helm: `chart/`
 - Scripts: `scripts/`
 - Tests: `tests/`
-- Artifacts: `artifacts/` (gitignored)
+- Artifacts: `tmp/artifacts/` (gitignored)
 - Proto: `proto/`
 
 ## Proto Contract
@@ -253,7 +253,7 @@ Check:
 ### Step 3: Verify Artifacts (if applicable)
 For scenario tasks (T09A/B/C):
 ```bash
-ls artifacts/<scenario>/<mode>/ | wc -l
+ls tmp/artifacts/<scenario>/<mode>/ | wc -l
 # Expected: 8 files (1 fortio + 2 A prom + 2 A log + 3 B metrics)
 ```
 

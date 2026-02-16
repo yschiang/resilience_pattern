@@ -125,9 +125,9 @@ Skill references:
 - skills/issue_ops_skill.md
 
 Key deliverables:
-- Directory structure: apps/, chart/, scripts/, tests/, artifacts/, docs/
+- Directory structure: apps/, chart/, scripts/, tests/, tmp/artifacts/, docs/
 - README.md with A=2, B=3 architecture notes
-- .gitignore (exclude artifacts/, *.log, *.prom)
+- .gitignore (exclude tmp/artifacts/, *.log, *.prom)
 - docs/execution_order.md (ALREADY EXISTS - verify only)
 
 DoD proofs (must run):
@@ -138,9 +138,9 @@ DoD proofs (must run):
 Commit:
 chore: Initialize repo structure and documentation
 
-- Create apps/, chart/, scripts/, tests/, artifacts/, docs/
+- Create apps/, chart/, scripts/, tests/, tmp/artifacts/, docs/
 - Add README.md with architecture (A=2, B=3, ports)
-- Add .gitignore (exclude artifacts/, logs, metrics)
+- Add .gitignore (exclude tmp/artifacts/, logs, metrics)
 - Verify execution_order.md exists
 
 Relates to #1
