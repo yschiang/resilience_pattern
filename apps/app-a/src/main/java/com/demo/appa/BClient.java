@@ -8,6 +8,7 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +21,9 @@ public class BClient {
 
     @Value("${b.service.url}")
     private String bServiceUrl;
+
+    @Autowired
+    private MetricsService metricsService;
 
     private ManagedChannel channel;
     private DemoServiceGrpc.DemoServiceBlockingStub blockingStub;
@@ -43,7 +47,9 @@ public class BClient {
 
     public WorkResult callWork(String requestId) {
         long startTime = System.currentTimeMillis();
+        ErrorCode errorCode = ErrorCode.UNKNOWN;
 
+        metricsService.incrementInflight();
         try {
             WorkRequest request = WorkRequest.newBuilder()
                     .setId(requestId)
@@ -52,27 +58,43 @@ public class BClient {
             WorkReply reply = blockingStub.work(request);
             long latency = System.currentTimeMillis() - startTime;
 
+            errorCode = ErrorCode.SUCCESS;
+            metricsService.recordDownstreamCall(latency, errorCode);
+
             return new WorkResult(
                     reply.getOk(),
                     reply.getCode(),
-                    latency
+                    latency,
+                    errorCode
             );
         } catch (StatusRuntimeException e) {
             long latency = System.currentTimeMillis() - startTime;
-            logger.error("gRPC call failed: {}", e.getStatus(), e);
+            errorCode = ErrorCode.fromGrpcStatus(e.getStatus().getCode());
+            logger.error("gRPC call failed: {} -> {}", e.getStatus(), errorCode, e);
+
+            metricsService.recordDownstreamCall(latency, errorCode);
+
             return new WorkResult(
                     false,
-                    "ERROR",
-                    latency
+                    errorCode.name(),
+                    latency,
+                    errorCode
             );
         } catch (Exception e) {
             long latency = System.currentTimeMillis() - startTime;
-            logger.error("Unexpected error calling B service", e);
+            errorCode = ErrorCode.UNKNOWN;
+            logger.error("Unexpected error calling B service: {}", errorCode, e);
+
+            metricsService.recordDownstreamCall(latency, errorCode);
+
             return new WorkResult(
                     false,
-                    "ERROR",
-                    latency
+                    errorCode.name(),
+                    latency,
+                    errorCode
             );
+        } finally {
+            metricsService.decrementInflight();
         }
     }
 
@@ -80,11 +102,13 @@ public class BClient {
         private final boolean ok;
         private final String code;
         private final long latencyMs;
+        private final ErrorCode errorCode;
 
-        public WorkResult(boolean ok, String code, long latencyMs) {
+        public WorkResult(boolean ok, String code, long latencyMs, ErrorCode errorCode) {
             this.ok = ok;
             this.code = code;
             this.latencyMs = latencyMs;
+            this.errorCode = errorCode;
         }
 
         public boolean isOk() {
@@ -97,6 +121,10 @@ public class BClient {
 
         public long getLatencyMs() {
             return latencyMs;
+        }
+
+        public ErrorCode getErrorCode() {
+            return errorCode;
         }
     }
 }
