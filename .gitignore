@@ -31,3 +31,6 @@ build/
 # Temporary files
 /tmp/
 *.tmp
+
+# Claude Code session data
+.claude/

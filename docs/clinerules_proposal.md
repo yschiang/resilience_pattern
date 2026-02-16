@@ -168,7 +168,7 @@ gh issue view <N> --json body,title,milestone
 ### Step 5: Run All DoD Proof Commands
 - Copy proof commands from issue DoD
 - Execute each one
-- Save outputs to `/tmp/proof_output_<N>.txt`
+- Save outputs to `./tmp/proof_output_<N>.txt`
 - **GATE:** All proofs must pass before proceeding
 
 ### Step 6: Commit
@@ -385,7 +385,7 @@ All skills are in: `../skills/*.md`
 │ STEP 4: Run All DoD Proof Commands                        │
 │ - Copy proofs from issue DoD                              │
 │ - Execute each sequentially                               │
-│ - Save outputs to /tmp/proof_<N>.txt                      │
+│ - Save outputs to ./tmp/proof_<N>.txt                        │
 │ - GATE: If any fail, return to STEP 3 (fix & retry)       │
 └───────────────┬───────────────────────────────────────────┘
                 │

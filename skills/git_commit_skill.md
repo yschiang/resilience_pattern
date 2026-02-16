@@ -33,7 +33,7 @@ git diff --cached --stat
 ```
 
 ### Step 3: Draft Commit Message
-Create `/tmp/COMMIT_MSG` with:
+Create `./tmp/COMMIT_MSG` with:
 ```
 <title — imperative, ≤72 chars>
 
@@ -52,7 +52,7 @@ Create `/tmp/COMMIT_MSG` with:
 ### Step 4: Verify Message is Clean
 ```bash
 # Gate: detect forbidden patterns
-if grep -qE "(Co-authored-by:|Signed-off-by:)" /tmp/COMMIT_MSG; then
+if grep -qE "(Co-authored-by:|Signed-off-by:)" ./tmp/COMMIT_MSG; then
   echo "ERROR: Automation artifacts detected in commit message"
   exit 1
 fi
@@ -60,7 +60,7 @@ fi
 
 ### Step 5: Commit Using Message File
 ```bash
-git commit -F /tmp/COMMIT_MSG
+git commit -F ./tmp/COMMIT_MSG
 ```
 
 ### Step 6: Verify Final Commit
@@ -72,8 +72,8 @@ git show -s --format=%B HEAD
 if git show -s --format=%B HEAD | grep -qE "(Co-authored-by:|Signed-off-by:)"; then
   echo "ERROR: Commit contains forbidden footers. Amending..."
   # Strip artifacts and re-commit
-  git show -s --format=%B HEAD | grep -vE "(Co-authored-by:|Signed-off-by:)" > /tmp/CLEAN_MSG
-  git commit --amend -F /tmp/CLEAN_MSG
+  git show -s --format=%B HEAD | grep -vE "(Co-authored-by:|Signed-off-by:)" > ./tmp/CLEAN_MSG
+  git commit --amend -F ./tmp/CLEAN_MSG
   echo "Commit cleaned and amended."
 fi
 ```

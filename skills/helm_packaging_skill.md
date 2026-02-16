@@ -44,8 +44,8 @@ helm version
 
 # lint + template sanity
 helm lint ./chart
-helm template demo ./chart -f chart/values-common.yaml -f chart/values-baseline.yaml > /tmp/demo.yaml
-wc -l /tmp/demo.yaml
+helm template demo ./chart -f chart/values-common.yaml -f chart/values-baseline.yaml > ./tmp/demo.yaml
+wc -l ./tmp/demo.yaml
 
 # deploy baseline to demo namespace
 kubectl create ns demo --dry-run=client -o yaml | kubectl apply -f -

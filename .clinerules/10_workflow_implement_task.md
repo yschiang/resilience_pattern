@@ -38,7 +38,7 @@ gh issue view <N> --json body,title,milestone
 ### Step 5: Run All DoD Proof Commands
 - Copy proof commands from issue DoD section
 - Execute each one sequentially
-- Save outputs to `/tmp/proof_output_<N>.txt` for reference
+- Save outputs to `./tmp/proof_output_<N>.txt` for reference
 - **GATE:** All proofs must pass before proceeding
 - If any proof fails:
   - Debug the issue
