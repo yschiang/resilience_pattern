@@ -1,0 +1,32 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 5
+
+**Scope**
+- Create `tests/verify_s1.sh`: assert resilient p99 < baseline p99 (directional)
+- Assert resilient has more QUEUE_FULL/CIRCUIT_OPEN errors than baseline
+- Create `tests/verify_s4.sh`: assert baseline has UNAVAILABLE burst on injected A pod
+- Assert resilient recovers faster (error count drops within N seconds)
+- Scripts should parse artifacts and return exit 0 (pass) or exit 1 (fail)
+
+**DoD**
+Proof commands:
+```bash
+./tests/verify_s1.sh
+```
+Expected: prints "PASS" or "FAIL" with reasoning, exits 0 on success
+
+```bash
+./tests/verify_s4.sh
+echo $?
+```
+Expected: exit code 0 (assumes S4 artifacts exist and are valid)
+
+**Depends on**
+#T09B (needs S1 artifacts), #T09C (needs S4 artifacts)
+
+**Skill references**
+- skills/scenario_artifact_skill.md
+
+**Out of scope**
+- Graphical dashboards
+- Automated CI integration (future work)

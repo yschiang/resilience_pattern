@@ -1,0 +1,117 @@
+--- a/skills/git_commit_skill.md
++++ b/skills/git_commit_skill.md
+@@ -5,7 +5,8 @@
+
+ ## Inputs
+ - **title**: Imperative, ≤72 chars (e.g., "Add circuit breaker to gRPC client")
+-- **body**: Optional bullets explaining why/what (wrap at 72 chars)
++- **type**: Optional conventional commit type (e.g., feat, fix, chore, docs, refactor, test)
++- **body**: Optional bullets explaining why/what (wrap at 72 chars)
+ - **scope**: Optional affected area (e.g., "client/grpc", "docs")
+ - **issue**: Optional reference (e.g., "#42" or "Fixes #42")
+
+@@ -32,9 +33,36 @@
+ git diff --cached --stat
+ ```
+
+-### Step 3: Draft Commit Message
++### Step 3: Draft Commit Message (Conventional Commits Format)
++
++**Conventional Commits Format** (recommended):
++```
++<type>[(optional scope)]: <description>
++
++[optional body]
++
++[optional footer(s)]
++```
++
++**Common types:**
++- `feat`: New feature
++- `fix`: Bug fix
++- `chore`: Maintenance (build, deps, config, non-user-facing changes)
++- `docs`: Documentation only
++- `refactor`: Code change that neither fixes a bug nor adds a feature
++- `test`: Adding or updating tests
++- `perf`: Performance improvement
++- `ci`: CI/CD changes
++- `style`: Code style/formatting (not CSS)
++
+ Create `/./tmp/COMMIT_MSG` with:
+ ```
++<type>: <title — imperative, ≤72 chars including type prefix>
++
++<optional body — wrap at 72 chars>
++- Bullet explaining why
++- Bullet explaining what changed
++
++<optional issue ref: Fixes #42>
++```
++
++**OR plain format** (without type prefix):
++```
+ <title — imperative, ≤72 chars>
+
+ <optional body — wrap at 72 chars>
+@@ -80,7 +108,7 @@
+
+ ### Step 7: Verify Commit Quality
+ ```bash
+-# Title length check
++# Title length check (includes type prefix if used)
+ TITLE=$(git show -s --format=%s HEAD)
+ if [ ${#TITLE} -gt 72 ]; then
+   echo "WARNING: Title exceeds 72 chars (${#TITLE})"
+@@ -97,7 +125,8 @@
+ - [ ] `git status` shows clean working tree (or expected untracked files)
+ - [ ] `git show -s --format=%B HEAD` shows clean message (no Co-authored-by)
+ - [ ] Title is imperative and ≤72 chars
+-- [ ] Body (if present) wraps at 72 chars
++- [ ] Optional: Type prefix follows conventional commits (feat, fix, chore, etc.)
++- [ ] Body (if present) wraps at 72 chars
+ - [ ] Commit represents one logical change
+ - [ ] No automation artifacts in message
+
+@@ -112,8 +141,26 @@
+ ---
+
+ ## Examples
+
+-### Good Commit
++### Good Commit (Conventional Format)
+ ```
++feat(grpc): Add circuit breaker to downstream client
++
++- Wrap BaselineBClient with Resilience4j CircuitBreaker
++- Open after 50% error rate in 10-call window
++- Fail fast with CIRCUIT_OPEN error when open
++
++Fixes #23
++```
++
++### Good Commit (Plain Format)
++```
++Add circuit breaker to gRPC downstream client
++
++- Wrap BaselineBClient with Resilience4j CircuitBreaker
++- Open after 50% error rate in 10-call window
++- Fail fast with CIRCUIT_OPEN error when open
++
++Fixes #23
++```
++
++### Good Commit (Chore Example)
++```
++chore: Add GitHub issue bootstrap and skill documentation
++
++Bootstrap infrastructure for demo project tracking:
++- Creates 5 milestones, 9 labels, 14 issues
++- Execution skills for kind/helm/proto/scenarios
++- All issues meet DoD bar (≥2 runnable proof commands)
++```
++
++### Old Format (Still Valid)
++```
+ Add circuit breaker to gRPC downstream client
+
+ - Wrap BaselineBClient with Resilience4j CircuitBreaker

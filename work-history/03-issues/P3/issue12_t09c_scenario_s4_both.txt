@@ -1,0 +1,51 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 4.2, 6
+
+**Scope**
+- Extend `scripts/run_scenario.sh` to support S4 baseline and S4 resilient modes
+- S4 params: B_DELAY_MS=5, qps=200, concurrency=50, duration=60s
+- Trigger fault injection at t=15s via T10 script
+- Collect artifacts into `artifacts/S4/baseline/` and `artifacts/S4/resilient/`
+- Artifacts must show per-pod UNAVAILABLE burst and recovery timeline
+
+**DoD**
+Proof commands:
+```bash
+./scripts/run_scenario.sh S4 baseline
+```
+Expected: completes, prints "Artifacts saved to artifacts/S4/baseline/"
+
+```bash
+ls artifacts/S4/baseline/ | wc -l
+```
+Expected: exactly 7 files (1 fortio.txt + 2 A prom + 2 A log + 3 B metrics)
+
+```bash
+grep -i UNAVAILABLE artifacts/S4/baseline/a-*.log | head -3
+```
+Expected: Shows UNAVAILABLE errors during fault injection window (t=15-30s)
+
+```bash
+./scripts/run_scenario.sh S4 resilient
+ls artifacts/S4/resilient/ | wc -l
+```
+Expected: exactly 7 files in resilient artifacts
+
+**Depends on**
+#10 (needs P1 resilience), #11 (needs fault injection), #9 (needs runner base)
+
+**Implementation notes**
+- S4 params:
+  - B_DELAY_MS=5 (minimal delay to isolate connection failures)
+  - Load: qps=200, concurrency=50, duration=60s
+  - Fault injection: t=15s, duration=15s, target 1 A pod
+- Fault injection uses iptables tcp-reset (primary) or tc netem (fallback)
+- Artifacts show UNAVAILABLE burst on targeted A pod, recovery after injection ends
+- Ports: A uses 8080, B uses 50051 (gRPC) + 8080 (metrics)
+
+**Skill references**
+- skills/scenario_artifact_skill.md
+
+**Out of scope**
+- Verification logic (handled in T11)
+- Comparison charts (manual or future tooling)

@@ -1,0 +1,49 @@
+## T01 DoD Proof Outputs
+
+### Proof 1: Directory structure exists
+```bash
+$ ls -la
+```
+```
+total 88
+drwxr-xr-x  18 .
+drwxr-xr-x  99 ..
+-rw-r--r--   1 .gitignore
+-rw-r--r--   1 README.md
+drwxr-xr-x   4 apps
+drwxr-xr-x   2 chart
+drwxr-xr-x   7 docs
+drwxr-xr-x   2 scripts
+drwxr-xr-x   2 tests
+```
+✓ PASS: .gitignore, README.md, docs/, apps/, chart/, scripts/, tests/ exist
+
+### Proof 2: README mentions replica counts
+```bash
+$ cat README.md | grep -E "(A.*2|B.*3)"
+```
+```
+- **Application A**: Spring Boot REST API (2 pods) - calls downstream B via gRPC
+- **Application B**: C++ gRPC service (3 pods, single-threaded) - exposes gRPC API and metrics
+- **A pods**: 2 replicas
+- **B pods**: 3 replicas
+```
+✓ PASS: README.md mentions A=2, B=3
+
+### Proof 3: execution_order.md exists with milestones
+```bash
+$ cat docs/execution_order.md | grep -E "P0:|T06"
+```
+```
+### P0: Baseline E2E Running
+#### T06 — app-b baseline (C++ gRPC single-thread + delay + /metrics)
+2. **T06** — Build app-b (B service must exist first)
+1. **Building A before B (T02 before T06):**
+- T01 (repo hygiene) + T06 (build B) — no dependencies between them
+- T06 → T02 (A needs B's proto)
+```
+✓ PASS: execution_order.md exists and contains P0 milestone and T06 task
+
+## All DoD Proofs Passed ✓
+
+Commit: 7e5d113

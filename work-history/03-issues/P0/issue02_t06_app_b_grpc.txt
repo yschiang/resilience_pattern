@@ -1,0 +1,42 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 2.1, 2.3
+
+**Scope**
+- C++ gRPC service B with single-thread worker (async API but 1 concurrent request at a time)
+- Support env var `B_DELAY_MS` (default=5) to inject artificial delay per request
+- Expose `/metrics` endpoint with Prometheus text format
+- Metrics MUST include: `b_busy` (gauge 0/1), `b_requests_total` (counter)
+- Dockerfile for app-b
+
+**DoD**
+Proof commands:
+```bash
+docker build -t app-b:dev ./apps/app-b
+docker run -d -p 50051:50051 -p 8080:8080 -e B_DELAY_MS=100 --name test-b app-b:dev
+sleep 2
+curl -s http://localhost:8080/metrics | grep -E "^b_busy|^b_requests_total"
+```
+Expected: `b_busy` and `b_requests_total` metrics present
+
+```bash
+docker rm -f test-b
+```
+Expected: cleanup successful
+
+**Depends on**
+None
+
+**Implementation notes**
+- gRPC port: 50051
+- Metrics HTTP port: 8080
+- Env vars: `B_DELAY_MS` (default=5)
+- Required metrics:
+  - `b_busy` (gauge, 0 or 1)
+  - `b_requests_total` (counter)
+  - Optional: `b_request_latency_ms` (histogram)
+- Single-thread: use one worker thread or semaphore(1) to enforce concurrency=1
+
+**Out of scope**
+- Resilience logic (P0+ features)
+- Helm deployment (handled in T07)
+- Connection pooling

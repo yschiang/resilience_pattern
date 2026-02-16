@@ -1,0 +1,1 @@
+2026-02-15 09:38:45.972 sysadminctl[23492:44671135] Guest account disabled.

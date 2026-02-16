@@ -1,0 +1,53 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 4.1, 6
+
+**Scope**
+- Create `scripts/run_scenario.sh` accepting args: scenario (S1/S4), mode (baseline/resilient)
+- For S1 baseline: run fortio load (qps=200, concurrency=80, duration=60s, warmup=10s)
+- Collect artifacts into `artifacts/S1/baseline/`:
+  - fortio.txt
+  - a-<pod>.prom (prometheus metrics snapshot)
+  - a-<pod>.log
+  - b-<pod>.metrics
+- Use `kubectl exec` and `kubectl cp` to gather data
+
+**DoD**
+Proof commands:
+```bash
+./scripts/run_scenario.sh S1 baseline
+```
+Expected: script completes, prints "Artifacts saved to artifacts/S1/baseline/"
+
+```bash
+ls artifacts/S1/baseline/ | wc -l
+```
+Expected: exactly 8 files (1 fortio.txt + 2 A prom files + 2 A log files + 3 B metrics files)
+
+```bash
+ls artifacts/S1/baseline/a-*.prom | wc -l
+ls artifacts/S1/baseline/b-*.metrics | wc -l
+```
+Expected: First shows 2 (A=2 pods), second shows 3 (B=3 pods)
+
+**Depends on**
+#5 (needs deployable chart), #6 (needs metrics)
+
+**Implementation notes**
+- Script usage: `./scripts/run_scenario.sh <S1|S4> <baseline|resilient>`
+- S1 baseline load params (fortio):
+  - qps=200, concurrency=80, duration=60s, warmup=10s, http_timeout=2s
+  - target: `http://a-service:8080/api/work`
+- Artifact collection:
+  - fortio output: `fortio load ... > artifacts/S1/baseline/fortio.txt`
+  - A metrics: `kubectl exec <pod> -- curl localhost:8080/actuator/prometheus > a-<pod>.prom`
+  - A logs: `kubectl logs <pod> > a-<pod>.log`
+  - B metrics: `kubectl exec <pod> -- curl localhost:8080/metrics > b-<pod>.metrics`
+- Ports: A uses 8080 (HTTP + metrics), B uses 50051 (gRPC) + 8080 (metrics)
+
+**Skill references**
+- skills/scenario_artifact_skill.md
+
+**Out of scope**
+- S1 resilient mode (handled in T09B)
+- S4 scenarios (handled in T09C)
+- Verification scripts (handled in T11)

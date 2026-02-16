@@ -1,0 +1,49 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 3
+
+**Scope**
+- Create `chart/values-common.yaml` (shared config: replicas A=2, B=3)
+- Create `chart/values-baseline.yaml` (resilience.enabled=false)
+- Create placeholder `chart/values-s1.yaml` (B_DELAY_MS=200, load params as comments)
+- Create placeholder `chart/values-s4.yaml` (B_DELAY_MS=5, channelPoolSize placeholder)
+- Verify helm install with overlay merging works
+
+**DoD**
+Proof commands:
+```bash
+helm upgrade --install demo ./chart \
+  -f chart/values-common.yaml \
+  -f chart/values-baseline.yaml \
+  -f chart/values-s1.yaml \
+  --dry-run | grep -E "replicas:|B_DELAY_MS"
+```
+Expected: replicas values visible, B_DELAY_MS=200
+
+```bash
+ls chart/values-*.yaml | wc -l
+```
+Expected: at least 4 (common, baseline, s1, s4)
+
+**Depends on**
+#4 (needs Helm chart structure)
+
+**Implementation notes**
+- values-common.yaml: replicas (appA: 2, appB: 3), image repos/tags
+- values-baseline.yaml:
+  - `resilience.enabled: false`
+  - baseline env vars (no deadline, no bulkhead, no breaker)
+- values-s1.yaml:
+  - `B_DELAY_MS: 200`
+  - load params (as comments): qps=200, concurrency=80, duration=60s
+- values-s4.yaml:
+  - `B_DELAY_MS: 5`
+  - `CHANNEL_POOL_SIZE: 1` (baseline) or 4 (resilient)
+  - fault injection timing: t=15s, duration=15s
+- values-resilient.yaml (created later in T04): `resilience.enabled: true`, deadlineMs, maxInflight
+
+**Skill references**
+- skills/helm_packaging_skill.md
+
+**Out of scope**
+- Resilient values overlay (comes later with T04)
+- Complete load parameters (refined in T09)

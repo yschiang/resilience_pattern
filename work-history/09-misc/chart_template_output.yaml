@@ -1,0 +1,120 @@
+---
+# Source: resilience-demo/templates/app-a-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: a-service
+  labels:
+    app: app-a
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: app-a
+---
+# Source: resilience-demo/templates/app-b-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: b-service
+  labels:
+    app: app-b
+spec:
+  type: ClusterIP
+  ports:
+  - port: 50051
+    targetPort: grpc
+    protocol: TCP
+    name: grpc
+  - port: 8080
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app: app-b
+---
+# Source: resilience-demo/templates/app-a-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-a
+  labels:
+    app: app-a
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-a
+  template:
+    metadata:
+      labels:
+        app: app-a
+    spec:
+      containers:
+      - name: app-a
+        image: "app-a:dev"
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: B_SERVICE_URL
+          value: "b-service:50051"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# Source: resilience-demo/templates/app-b-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-b
+  labels:
+    app: app-b
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: app-b
+  template:
+    metadata:
+      labels:
+        app: app-b
+    spec:
+      containers:
+      - name: app-b
+        image: "app-b:dev"
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 50051
+          name: grpc
+        - containerPort: 8080
+          name: metrics
+        env:
+        - name: B_DELAY_MS
+          value: "5"
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5

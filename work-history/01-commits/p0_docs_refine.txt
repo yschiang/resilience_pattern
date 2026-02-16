@@ -1,0 +1,19 @@
+docs: Refine execution order and clinerules proofs
+
+Three fixes for reproducibility:
+
+1. Fix artifact count math in clinerules_proposal.md
+   - Changed "Expected: 7 files" to "Expected: 8 files"
+   - Correct math: 1 fortio + 2 A prom + 2 A log + 3 B metrics = 8
+
+2. Replace localhost proofs with in-cluster kubectl commands
+   - T03, T04: Use kubectl debug pod with a-service DNS
+   - T05: Use kubectl logs on deployment instead of docker logs
+   - Ensures proofs work in actual K8S environment
+
+3. Document fault injection execution location for T10
+   - Clarified: runs inside target A pod using kubectl exec
+   - Requires NET_ADMIN capability in pod securityContext
+   - Specifies exact iptables command and timing
+
+Why: All proof commands must be runnable in target environment (kind + K8S).

@@ -1,0 +1,42 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 2.1, 3.1
+
+**Scope**
+- Create Helm chart in `chart/` directory
+- Deployments for app-a (replicas=2) and app-b (replicas=3)
+- Services for A and B
+- Optional: loadgen pod for testing
+- Chart.yaml and base templates
+
+**DoD**
+Proof commands:
+```bash
+helm upgrade --install demo ./chart --dry-run | grep -E "Deployment|kind: Service"
+```
+Expected: Shows Deployment and Service resources for A and B
+
+```bash
+helm upgrade --install demo ./chart --set image.tag=test
+kubectl get pods -l app=app-a
+kubectl get pods -l app=app-b
+```
+Expected: 2 app-a pods and 3 app-b pods in output (or Pending/ImagePullBackOff acceptable for this test)
+
+**Depends on**
+#2, #3 (needs app images defined)
+
+**Implementation notes**
+- Chart location: `chart/`
+- Chart.yaml: name=resilience-demo, version=0.1.0
+- Deployments:
+  - app-a: replicas=2, labels: app=app-a
+  - app-b: replicas=3, labels: app=app-b
+- Services:
+  - a-service: ClusterIP, port 8080
+  - b-service: ClusterIP, port 50051
+- Key values to parameterize: image.repository, image.tag, replicas, env vars
+
+**Out of scope**
+- Values overlays (handled in T08)
+- Resilience configuration
+- Production-ready monitoring setup

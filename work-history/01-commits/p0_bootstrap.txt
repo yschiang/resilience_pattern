@@ -1,0 +1,14 @@
+chore: Add GitHub issue bootstrap and skill documentation
+
+Bootstrap infrastructure for demo project tracking:
+- bootstrap_issues.sh: Creates 5 milestones, 9 labels, 14 issues
+- skills/*.md: Execution skills for kind/helm/proto/scenarios
+- skills_refinements.patch: Alignment fixes (ports, paths, DoD)
+- docs/plan.md: SSOT for architecture (A=2, B=3, S1/S4 scenarios)
+
+Proof commands executed:
+- gh label list (9 labels created)
+- gh issue list --limit 50 (14 issues created)
+- All issues follow template: Refs/Scope/DoD/Depends/OutOfScope
+
+All issues meet DoD bar (≥2 runnable proof commands per issue).

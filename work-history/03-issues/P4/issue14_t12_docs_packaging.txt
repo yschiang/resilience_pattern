@@ -1,0 +1,32 @@
+**Refs**
+- docs/plan.md (SSOT)
+
+**Scope**
+- Ensure docs/plan.md is up-to-date with actual implementation
+- Create or update runbook doc with:
+  - One-command drill examples (run_scenario.sh S1/S4 baseline/resilient)
+  - Expected outputs and verification commands
+  - Troubleshooting common issues
+- Confirm all helm commands, proof commands, and artifact paths match reality
+
+**DoD**
+Proof commands:
+```bash
+cat docs/plan.md | grep -E "helm upgrade.*values-s1"
+```
+Expected: contains accurate helm command examples
+
+```bash
+grep -E "run_scenario.sh S1 baseline|run_scenario.sh S4 resilient" docs/*.md | wc -l
+```
+Expected: at least 2 occurrences across docs (plan + runbook)
+
+**Depends on**
+All previous tasks (T01-T11)
+
+**Skill references**
+- skills/issue_ops_skill.md
+
+**Out of scope**
+- Video demos
+- External blog posts

@@ -1,0 +1,30 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 2.2 (P0)
+
+**Scope**
+- Implement deadline per gRPC call: `withDeadlineAfter(deadlineMs)` configurable via env
+- Implement bounded inflight (bulkhead): `maxInflightPerPod` semaphore
+- Return `QUEUE_FULL` when inflight limit exceeded
+- Implement circuit breaker per downstream (fail-fast on repeated failures/slow calls)
+- Return `CIRCUIT_OPEN` when breaker is open
+- Feature flag: `RESILIENCE_ENABLED` (default=false for baseline compatibility)
+
+**DoD**
+Proof commands:
+```bash
+docker run -d -p 8080:8080 -e RESILIENCE_ENABLED=true -e DEADLINE_MS=500 -e MAX_INFLIGHT=10 --name test-a-r app-a:dev
+curl -s http://localhost:8080/api/work | jq .code
+```
+Expected: code is one of SUCCESS, DEADLINE_EXCEEDED, QUEUE_FULL, or CIRCUIT_OPEN
+
+```bash
+curl -s http://localhost:8080/actuator/prometheus | grep "a_downstream_errors_total.*QUEUE_FULL"
+```
+Expected: QUEUE_FULL code appears in metrics (after triggering overload)
+
+**Depends on**
+#T03 (needs metrics infrastructure)
+
+**Out of scope**
+- Self-heal / connection pool (handled in T05)
+- S1 resilient artifacts (handled in T09B)

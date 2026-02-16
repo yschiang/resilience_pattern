@@ -1,0 +1,47 @@
+  Prompt File Created: PROMPT_DEVELOPER_P1.txt                              
+                                                                                                                                      
+  How to Use This Prompt                                                    
+
+  Option 1: Start New Claude Code Session
+  # Copy the entire prompt
+  cat PROMPT_DEVELOPER_P1.txt | pbcopy
+
+  # Open new Claude Code session in this directory
+  cd /Users/johnson.chiang/workspace/resilience_pattern
+
+  # Paste the prompt to start Developer agent
+
+  Option 2: Use in Current Session
+  If you want to switch to Developer mode in this session, just paste the prompt content.
+
+  What the Prompt Contains
+
+  1. Role Definition: Developer agent for P1 milestone
+  2. Context: P0 complete, .clinerules/ created, master at commit 6524205
+  3. Architecture Invariants: A=2, B=3, ports, B_DELAY_MS (IMMUTABLE)
+  4. Hard Gates: Commit policy, DoD bar, workflow requirements
+  5. Task Sequence: T03 (#6) → T09A (#7) with full details
+  6. 8-Step Workflow: From .clinerules/10_workflow_implement_task.md
+  7. Success Criteria: Checklist before opening PR
+  8. Common Pitfalls: What to avoid (Co-authored-by, wrong artifact count, etc.)
+  9. Reference Docs: Links to .clinerules/, skills/, docs/
+  10. Start Commands: Ready-to-execute bash commands
+
+  Key Features
+
+  - ✅ References handoff document (docs/p1_handoff_summary.md)
+  - ✅ Enforces .clinerules/ reading before starting
+  - ✅ Includes architecture constant verification commands
+  - ✅ Specifies exact task order with dependencies
+  - ✅ Warns about critical issues (8 artifacts not 7, B_DELAY_MS not DELAY_MS)
+  - ✅ Provides PR template for when P1 is complete
+  - ✅ Includes operating loop pseudocode
+
+  Developer Will Execute
+
+  1. Read docs/p1_handoff_summary.md
+  2. Read .clinerules/ files in order
+  3. Execute T03 (#6) — Metrics & semantic error taxonomy
+  4. Execute T09A (#7) — Scenario runner S1 baseline
+  5. Open PR for P1 milestone
+  6. Wait for Architect review

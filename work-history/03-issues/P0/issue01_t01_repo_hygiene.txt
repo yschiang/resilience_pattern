@@ -1,0 +1,41 @@
+**Refs**
+- docs/plan.md (SSOT)
+
+**Scope**
+- Initialize repo structure (README, .gitignore, basic directories)
+- Add build/deploy notes in README
+- Create directory structure: apps/, chart/, scripts/, tests/, artifacts/, docs/
+- Create `docs/execution_order.md` with task execution sequence by milestone
+
+**DoD**
+Proof commands:
+```bash
+ls -la
+```
+Expected: `.gitignore`, `README.md`, `docs/`, `apps/`, `chart/`, `scripts/`, `tests/` exist
+
+```bash
+cat README.md | grep -E "A=2.*B=3"
+```
+Expected: mentions replica counts A=2, B=3
+
+```bash
+cat docs/execution_order.md | grep -E "P0:|T06"
+```
+Expected: execution_order.md exists and contains milestone/task references
+
+**Depends on**
+None
+
+**Implementation notes**
+- Directory structure: `apps/app-a/`, `apps/app-b/`, `chart/`, `scripts/`, `tests/`, `artifacts/`, `docs/`
+- README should mention: A=2 pods, B=3 pods, basic build/deploy commands
+- .gitignore: exclude `artifacts/`, `*.log`, `*.prom`, Docker artifacts
+- execution_order.md: Document task sequence P0→P1→P2→P3→P4
+
+**Skill references**
+- skills/issue_ops_skill.md
+
+**Out of scope**
+- Application code implementation
+- Helm chart values (handled in T08)

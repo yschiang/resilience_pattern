@@ -1,0 +1,191 @@
+--- a/skills/issue_ops_skill.md
++++ b/skills/issue_ops_skill.md
+@@ -20,7 +20,7 @@
+   - area/app-a, area/app-b, area/helm, area/scripts, area/docs
+   - prio/P0, prio/P1, prio/P2
+ - Issues created/updated with enforced template
+-- Optional: `docs/execution_order.md`
++- Required: `docs/execution_order.md`
+
+ ## Steps
+ 1) Precheck `gh` auth and set default repo.
+
+--- a/skills/proto_codegen_skill.md
++++ b/skills/proto_codegen_skill.md
+@@ -17,10 +17,11 @@
+ ## Recommended design
+ - Package name stable (e.g., `demo.v1`)
+ - One unary RPC: `Work(WorkRequest) returns (WorkReply)`
++- gRPC service port: 50051
+ - WorkReply includes minimal fields needed by demo:
+   - `bool ok`
+   - `string code`
+-  - `int64 latency_ms` (optional; can be measured by caller too)
++  - `int64 latency_ms` (proto snake_case; Java client maps to JSON `latencyMs` camelCase)
+
+ ## Steps
+ 1) Create `proto/demo.proto` with unary Work.
+@@ -39,10 +40,10 @@
+ ls -la proto/demo.proto
+
+ # app-a build (choose one)
+-( cd app-a && ./mvnw -q -DskipTests package ) || ( cd app-a && ./gradlew -q build )
++( cd apps/app-a && ./mvnw -q -DskipTests package ) || ( cd apps/app-a && ./gradlew -q build )
+
+ # app-b build (example)
+-( cd app-b && docker build -t resilience-pattern/app-b:dev . )
++( cd apps/app-b && docker build -t resilience-pattern/app-b:dev . )
+
+ # optional: quick grep for generated symbols (implementation-dependent)
+ grep -R "service .*Demo" -n proto/demo.proto
+
+--- a/skills/kind_cluster_skill.md
++++ b/skills/kind_cluster_skill.md
+@@ -28,7 +28,8 @@
+
+ kubectl cluster-info
+ kubectl get nodes
+-kubectl get ns demo
++kubectl get ns demo -o name
++# expected: namespace/demo
+ ```
+
+ ### Expected
+
+--- a/skills/image_build_load_skill.md
++++ b/skills/image_build_load_skill.md
+@@ -5,8 +5,8 @@
+
+ ## Inputs
+ - Dockerfiles:
+-  - `app-a/Dockerfile`
+-  - `app-b/Dockerfile`
++  - `apps/app-a/Dockerfile`
++  - `apps/app-b/Dockerfile`
+ - Image tags (defaults):
+   - `resilience-pattern/app-a:dev`
+   - `resilience-pattern/app-b:dev`
+@@ -35,6 +35,9 @@
+
+ # verify images exist locally
+ docker images | grep -E "resilience-pattern/app-a|resilience-pattern/app-b"
++
++# verify images are loaded INTO kind (not just local)
++docker exec resilience-pattern-control-plane crictl images | grep resilience-pattern
+ ```
+
+ ### Expected
+
+--- a/skills/helm_packaging_skill.md
++++ b/skills/helm_packaging_skill.md
+@@ -18,10 +18,10 @@
+   - deployments/services for A and B
+ - Values keys are stable and match plan.md:
+   - B gRPC port: 50051
+-  - B metrics port: 9091
++  - B metrics port: 8080
+   - A HTTP port: 8080 (example)
+-  - B delay env: `DELAY_MS`
++  - B delay env: `B_DELAY_MS`
+
+ ## Steps
+ 1) Create minimal chart structure.
+@@ -51,8 +51,13 @@
+ kubectl create ns demo --dry-run=client -o yaml | kubectl apply -f -
+ helm upgrade --install demo ./chart -n demo -f chart/values-common.yaml -f chart/values-baseline.yaml
+
++# verify exact replica counts
+ kubectl -n demo get po
+ kubectl -n demo get svc
++kubectl -n demo get po -l app=app-a --no-headers | wc -l  # expect: 2
++kubectl -n demo get po -l app=app-b --no-headers | wc -l  # expect: 3
++
++# verify idempotency: rerun should show no changes
+ ```
+
+ ### Expected
+
+--- a/skills/scenario_artifact_skill.md
++++ b/skills/scenario_artifact_skill.md
+@@ -51,14 +51,26 @@
+ # quick sanity: ensure key files exist
+ ls artifacts/S1/baseline/fortio.txt
+ ls artifacts/S1/baseline/a-*.prom
+ ls artifacts/S1/baseline/b-*.metrics
++
++# run S4 baseline
++bash scripts/run_scenario.sh S4 baseline
++
++# verify S4 artifacts
++find artifacts/S4/baseline -type f | wc -l  # expect: >= 6 files
++grep -i UNAVAILABLE artifacts/S4/baseline/a-*.log | head -3
+ ```
+
+ ### Expected
+ - Script exits 0
+ - artifacts directory contains:
+   - fortio.txt
+-  - at least 2 A prom files and 2 A log files
+-  - at least 3 B metrics files
++  - exactly 2 A prom files (A=2 pods) and 2 A log files
++  - exactly 3 B metrics files (B=3 pods)
++- S4 artifacts show UNAVAILABLE errors during fault injection
+
+ ## Guardrails
+-- Script must be safe to rerun (overwrite same run dir or create timestamped subdir).
++- Script must be safe to rerun (overwrites artifacts/{scenario}/{mode}/ on each run; no timestamps).
+ - No manual port-forward dependency for artifact capture (prefer kubectl exec from pods).
+
+--- a/skills/resilience_patterns_skill.md
++++ b/skills/resilience_patterns_skill.md
+@@ -1,7 +1,7 @@
+ # Skill: Apply Resilience Patterns to Spring Boot gRPC Client (Downstream single-thread)
+
+ ## Goal
+-Transform Application A (Spring Boot on K8S, 3 pods) calling downstream B (C++ gRPC, single-thread)
++Transform Application A (Spring Boot on K8S, 2 pods) calling downstream B (C++ gRPC, single-thread)
+ from queueing collapse + correlated failures to fail-fast + isolated + self-healing + observable.
+
+ ## Outputs
+@@ -12,11 +12,39 @@
+ - Demo scripts: ./scripts/run_scenario.sh S1|S4 baseline|resilient
+
+ ## Steps
++See issues: T03 (taxonomy), T04 (P0 patterns), T05 (P1 self-heal)
++
+ Step 0 Baseline Assessment -> docs/BASELINE.md
+ Step 1 Error Taxonomy (enum + exception + mapping tests)
+ Step 2 Resilient Wrapper (deadline + inflight + breaker)
+ Step 3 Self-heal + optional channel pool
+ Step 4 Fallback (optional) -> docs/FALLBACK.md
+ Step 5 Metrics -> /actuator/prometheus
+ Step 6 Drill scripts + docs/SCENARIOS.md
+
++## DoD (Proof commands + Expected)
++
++### Proof commands
++```bash
++# Verify taxonomy in response
++curl -s http://localhost:8080/api/work | jq '.code'
++
++# Verify metrics exist
++curl -s http://localhost:8080/actuator/prometheus | grep -E "a_downstream_errors_total|a_breaker_state"
++
++# Verify resilience flags work (in K8S)
++kubectl -n demo set env deployment/app-a RESILIENCE_ENABLED=true
++kubectl -n demo rollout status deployment/app-a
++
++# Verify error codes under load
++kubectl -n demo exec -it deploy/app-a -- curl -s localhost:8080/actuator/prometheus | grep 'a_downstream_errors_total.*QUEUE_FULL'
++```
++
++### Expected
++- Response code is one of: SUCCESS, DEADLINE_EXCEEDED, UNAVAILABLE, QUEUE_FULL, CIRCUIT_OPEN
++- Metrics include error taxonomy labels and breaker state gauge
++- Flag toggle (RESILIENCE_ENABLED=true/false) changes behavior without code rebuild
++- Under S1 overload: QUEUE_FULL and CIRCUIT_OPEN errors appear in metrics
++- Under S4 fault injection: UNAVAILABLE errors appear, then recover
++
++## Guardrails
++- Baseline mode MUST work (resilience.enabled=false)
++- All patterns must be per-downstream (not global shared state)

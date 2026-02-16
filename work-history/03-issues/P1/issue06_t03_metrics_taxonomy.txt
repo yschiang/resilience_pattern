@@ -1,0 +1,45 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 2.2 (P3), 2.3
+
+**Scope**
+- Implement semantic error codes in A: DEADLINE_EXCEEDED, UNAVAILABLE, QUEUE_FULL, CIRCUIT_OPEN, UNKNOWN
+- Export A metrics via `/actuator/prometheus`:
+  - `a_downstream_latency_ms{downstream,method,quantile}` (p95, p99)
+  - `a_downstream_errors_total{downstream,method,code}`
+  - `a_downstream_inflight{downstream}`
+  - `a_breaker_state{downstream}` (can be 0 even if breaker not active yet)
+- Ensure taxonomy appears in response JSON `code` field
+
+**DoD**
+Proof commands:
+```bash
+curl -s http://localhost:8080/actuator/prometheus | grep "a_downstream_latency_ms.*quantile"
+```
+Expected: p95 and p99 quantiles present
+
+```bash
+curl -s http://localhost:8080/actuator/prometheus | grep -E "a_downstream_errors_total|a_downstream_inflight|a_breaker_state"
+```
+Expected: all three metric families present
+
+**Depends on**
+#3 (extends app-a with metrics)
+
+**Implementation notes**
+- Semantic error codes (enum or constants):
+  - SUCCESS
+  - DEADLINE_EXCEEDED (gRPC deadline timeout)
+  - UNAVAILABLE (connection reset, CANCELLED, DNS failure)
+  - QUEUE_FULL (inflight limit exceeded - comes in T04)
+  - CIRCUIT_OPEN (breaker open - comes in T04)
+  - UNKNOWN (fallback)
+- Metric names (can adjust, but keep semantics):
+  - `a_downstream_latency_ms` with labels: downstream="B", method="DoWork", quantile="0.95|0.99"
+  - `a_downstream_errors_total` with labels: downstream="B", method="DoWork", code="<CODE>"
+  - `a_downstream_inflight` gauge with labels: downstream="B"
+  - `a_breaker_state` gauge with labels: downstream="B" (values: 0=closed, 1=open, 2=half-open)
+- Use Micrometer's Timer and Counter APIs for proper quantile calculation
+
+**Out of scope**
+- Actual breaker implementation (handled in T04)
+- S1 scenario runner (handled in T09A)

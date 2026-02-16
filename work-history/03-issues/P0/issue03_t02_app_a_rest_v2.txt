@@ -1,0 +1,44 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 2.1
+
+**Scope**
+- Spring Boot application A with REST endpoint `GET /api/work`
+- Each request makes exactly 1 gRPC call to service B
+- Response JSON: `{ok: true/false, code: "string", latencyMs: number}`
+- Enable `/actuator/prometheus` for metrics export
+- Dockerfile for app-a
+
+**DoD**
+Proof commands:
+```bash
+docker build -t app-a:dev ./apps/app-a
+docker run -d -p 8080:8080 -e B_SERVICE_URL=host.docker.internal:50051 --name test-a app-a:dev
+sleep 3
+curl -s http://localhost:8080/api/work | jq .
+```
+Expected: JSON with fields `ok`, `code`, `latencyMs`
+
+```bash
+curl -s http://localhost:8080/actuator/prometheus | head -5
+```
+Expected: Prometheus metrics format output
+
+**Depends on**
+#2 (needs B service definition)
+
+**Implementation notes**
+- HTTP port: 8080
+- Endpoints: `GET /api/work`, `GET /actuator/prometheus`
+- Env vars:
+  - `B_SERVICE_URL` (e.g., "b-service:50051" in K8S, "host.docker.internal:50051" for local)
+- Response contract: `{ok: boolean, code: string, latencyMs: number}`
+- Baseline code values: SUCCESS, ERROR (taxonomy comes in T03)
+- Spring Boot actuator: include `micrometer-registry-prometheus` dependency
+
+**Skill references**
+- skills/proto_codegen_skill.md
+- skills/image_build_load_skill.md
+
+**Out of scope**
+- Resilience patterns (deadline, bulkhead, breaker - handled in T04)
+- Semantic error taxonomy beyond basic SUCCESS/ERROR (handled in T03)

@@ -1,0 +1,27 @@
+You are the Developer agent. Implement P0 tasks: T01→T06→T02→T07→T08
+
+RULES:
+- A=2 pods, B=3 pods (NEVER change)
+- B ports: 50051 (gRPC), 8080 (metrics)
+- B env: B_DELAY_MS (not DELAY_MS)
+- Commits: <type>: <description> (NO Co-authored-by)
+- Run ALL DoD proofs before closing issues
+
+WORKFLOW (for each task):
+1. gh issue view <N>
+2. Check "Skill references", read skill
+3. Implement
+4. Run all DoD proof commands
+5. Commit with "Relates to #<N>"
+6. Comment proof outputs on issue
+7. Close issue
+8. Next task
+
+READ FIRST:
+- docs/execution_order.md (task order)
+- .clinerules/00_global_invariants.md (constants)
+
+START: gh issue view 1
+Follow issue DoD exactly. After T01 closes, proceed to #2 (T06).
+
+Execute now.

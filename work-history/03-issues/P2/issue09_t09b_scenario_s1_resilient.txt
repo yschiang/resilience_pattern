@@ -1,0 +1,31 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 4.1, 6
+
+**Scope**
+- Extend `scripts/run_scenario.sh` to support S1 resilient mode
+- Deploy with `values-resilient.yaml` (RESILIENCE_ENABLED=true, deadlineMs=800, etc.)
+- Run same load profile as S1 baseline
+- Collect artifacts into `artifacts/S1/resilient/`
+- Compare p99 latency and error codes vs baseline
+
+**DoD**
+Proof commands:
+```bash
+./scripts/run_scenario.sh S1 resilient
+```
+Expected: script completes, prints "Artifacts saved to artifacts/S1/resilient/"
+
+```bash
+grep -E "QUEUE_FULL|CIRCUIT_OPEN" artifacts/S1/resilient/a-*.prom | wc -l
+```
+Expected: at least 1 occurrence of resilience error codes
+
+**Depends on**
+#T04 (needs resilient implementation), #T09A (needs runner script)
+
+**Skill references**
+- skills/scenario_artifact_skill.md
+
+**Out of scope**
+- S4 scenarios (handled in T09C)
+- Automated verification (handled in T11)

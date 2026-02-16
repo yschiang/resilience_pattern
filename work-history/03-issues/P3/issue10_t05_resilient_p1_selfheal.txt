@@ -1,0 +1,31 @@
+**Refs**
+- docs/plan.md (SSOT) - Section 2.2 (P1)
+
+**Scope**
+- Implement gRPC keepalive settings (keepalive_time, keepalive_timeout)
+- Add controlled reconnect with exponential backoff (avoid tight-loop reconnection)
+- Optional: implement `CHANNEL_POOL_SIZE=N` to create N channels and round-robin
+- Goal: reduce correlated failure blast radius and improve B pod load distribution
+
+**DoD**
+Proof commands:
+```bash
+docker run -d -p 8080:8080 -e RESILIENCE_ENABLED=true -e CHANNEL_POOL_SIZE=4 --name test-a-pool app-a:dev
+curl -s http://localhost:8080/actuator/prometheus | grep "a_channel_pool_size"
+```
+Expected: metric or config confirms pool size=4 (or similar observable proof)
+
+```bash
+docker logs test-a-pool 2>&1 | grep -i "keepalive"
+```
+Expected: logs mention keepalive configuration (if logged)
+
+**Depends on**
+#T04 (builds on resilient P0)
+
+**Skill references**
+- skills/resilience_patterns_skill.md
+
+**Out of scope**
+- S4 fault injection (handled in T10)
+- S4 scenario runner (handled in T09C)

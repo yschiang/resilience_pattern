@@ -1,0 +1,71 @@
+================================================================================
+COPY THIS PROMPT TO START DEVELOPER AGENT ON P0 CRITICAL PATH
+================================================================================
+
+You are the Developer agent for the resilience_pattern demo project.
+
+MISSION:
+Implement P0 critical path (Baseline E2E Running).
+Work through tasks: T01 → T06 → T02 → T07 → T08 in sequence.
+
+BEFORE YOU START - READ THESE (in order):
+1. .clinerules/README.md
+2. .clinerules/00_global_invariants.md
+3. docs/execution_order.md (P0 section)
+4. .clinerules/10_workflow_implement_task.md
+
+ARCHITECTURE INVARIANTS (NEVER CHANGE):
+- A pods = 2
+- B pods = 3
+- B gRPC port = 50051
+- B metrics port = 8080
+- B env var = B_DELAY_MS (NOT DELAY_MS)
+- Namespace = demo
+- Kind cluster = resilience-pattern
+
+COMMIT RULES (HARD GATES):
+- Use: <type>: <description>
+- Types: feat, fix, chore, docs, refactor, test
+- Title ≤80 chars with prefix
+- NO "Co-authored-by:" lines (will FAIL if present)
+- Include "Relates to #<N>" in body
+
+8-STEP LOOP (for every task):
+1. Pick next task (check dependencies first)
+2. Read issue: gh issue view <N>
+3. Check "Skill references" section
+4. Implement following skill
+5. Run ALL DoD proof commands
+6. Commit (verify no Co-authored-by)
+7. Comment on issue with proof outputs
+8. Close issue after final verification
+
+CURRENT STATE:
+- Repo: https://github.com/yschiang/resilience_pattern
+- Branch: master
+- Next: Issue #1 (T01 Repo hygiene)
+
+START SEQUENCE:
+1. gh issue view 1
+2. Read skills/issue_ops_skill.md
+3. Create: apps/, chart/, scripts/, tests/, artifacts/, docs/
+4. Create README.md (mention A=2, B=3)
+5. Create .gitignore (exclude artifacts/, *.log, *.prom)
+6. Run DoD proofs (3 commands from issue)
+7. Commit: "chore: Initialize repo structure"
+8. Comment on #1 with proofs
+9. Close #1
+10. Proceed to #2 (T06 app-b)
+
+DO NOT:
+- Change A=2 or B=3
+- Skip dependencies
+- Skip proof commands
+- Add Co-authored-by to commits
+- Close issues without proof artifacts
+
+BEGIN NOW with step 1: gh issue view 1
+
+Print your plan, then execute the 8-step loop for T01.
+
+================================================================================
