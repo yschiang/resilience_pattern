@@ -1,9 +1,16 @@
 server:
   port: 8080
 
+resilience:
+  enabled: ${RESILIENCE_ENABLED:false}
+
 b:
   service:
     url: ${B_SERVICE_URL:localhost:50051}
+  deadline:
+    ms: ${DEADLINE_MS:800}
+  inflight:
+    max: ${MAX_INFLIGHT:10}
 
 management:
   endpoints:

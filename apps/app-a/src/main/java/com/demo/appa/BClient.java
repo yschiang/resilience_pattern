@@ -10,13 +10,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 
 @Component
-public class BClient {
+@ConditionalOnProperty(name = "resilience.enabled", havingValue = "false", matchIfMissing = true)
+public class BClient implements BClientPort {
     private static final Logger logger = LoggerFactory.getLogger(BClient.class);
 
     @Value("${b.service.url}")
@@ -98,33 +100,4 @@ public class BClient {
         }
     }
 
-    public static class WorkResult {
-        private final boolean ok;
-        private final String code;
-        private final long latencyMs;
-        private final ErrorCode errorCode;
-
-        public WorkResult(boolean ok, String code, long latencyMs, ErrorCode errorCode) {
-            this.ok = ok;
-            this.code = code;
-            this.latencyMs = latencyMs;
-            this.errorCode = errorCode;
-        }
-
-        public boolean isOk() {
-            return ok;
-        }
-
-        public String getCode() {
-            return code;
-        }
-
-        public long getLatencyMs() {
-            return latencyMs;
-        }
-
-        public ErrorCode getErrorCode() {
-            return errorCode;
-        }
-    }
 }

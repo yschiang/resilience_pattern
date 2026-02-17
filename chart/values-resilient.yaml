@@ -1,0 +1,21 @@
+# Resilient configuration (P0 patterns enabled)
+# Used for resilient measurements in S1 and S4 scenarios
+
+resilience:
+  enabled: true
+
+appA:
+  env:
+    - name: B_SERVICE_URL
+      value: "b-service:50051"
+    - name: RESILIENCE_ENABLED
+      value: "true"
+    - name: DEADLINE_MS
+      value: "800"
+    - name: MAX_INFLIGHT
+      value: "10"
+
+appB:
+  env:
+    - name: B_DELAY_MS
+      value: "5"
