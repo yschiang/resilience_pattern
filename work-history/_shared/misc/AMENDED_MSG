@@ -1,0 +1,15 @@
+feat: Add scenario runner S1 baseline (#16)
+
+Merged by Architect under delegated authority.
+
+Includes:
+- c44c441: feat: Add scenario runner script for S1 baseline  
+- f3af339: refactor: consolidate artifacts under tmp/ directory
+
+All quality gates passed:
+- Namespace support verified (-n demo)
+- Baseline S1 artifacts collected (8 files)
+- DoD proofs comprehensive
+- tmp/artifacts consolidation complete
+
+Closes #6 (T09A)

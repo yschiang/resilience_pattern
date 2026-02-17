@@ -1,0 +1,502 @@
+  Developer — Your next task is T04: Resilient P0 Wrapper.  
+                                                                                                                                                  
+  Read this prompt fully before touching any code.          
+
+  ---
+  1. Context
+
+  Issue: gh issue view 8
+  Milestone: P2 Resilient P0 (Stop the bleeding)
+  Depends on: T03 ✅ (metrics infrastructure already in place)
+  Blocks: T09B (S1 resilient artifacts)
+
+  North star: Downstream failure must NOT turn into upstream queueing collapse. After T04, S1 resilient mode will show fail-fast behavior instead
+  of 3500ms cascading timeouts.
+
+  ---
+  2. What Exists Today (Read These First)
+
+  # Understand the current codebase before writing anything
+  cat apps/app-a/src/main/java/com/demo/appa/BClient.java
+  cat apps/app-a/src/main/java/com/demo/appa/ErrorCode.java
+  cat apps/app-a/src/main/java/com/demo/appa/MetricsService.java
+  cat apps/app-a/src/main/java/com/demo/appa/WorkController.java
+  cat apps/app-a/src/main/resources/application.yml
+  cat apps/app-a/pom.xml
+
+
+  Key findings you will confirm:
+  - ErrorCode.java: QUEUE_FULL and CIRCUIT_OPEN already defined ✅
+  - MetricsService.java: a_breaker_state hardcoded () -> 0 → needs fix
+  - BClient.java: No deadline, no bulkhead, no circuit breaker → baseline only
+  - WorkController.java: Wired to BClient type → needs interface
+
+  ---
+  3. Architecture: @ConditionalOnProperty Pattern
+
+  Do NOT use a factory class. Use Spring's built-in conditional bean selection:
+
+  RESILIENCE_ENABLED=false  →  Spring creates BClient (baseline)
+  RESILIENCE_ENABLED=true   →  Spring creates ResilientBClient (resilient)
+
+  WorkController autowires BClientPort (interface)
+  Spring selects exactly ONE implementation at startup
+
+
+  ---
+  4. Files to CREATE (4 files)
+
+  ---
+  File 1: apps/app-a/src/main/java/com/demo/appa/BClientPort.java
+
+  package com.demo.appa;
+
+  public interface BClientPort {
+      WorkResult callWork(String requestId);
+  }
+
+  ---
+  File 2: apps/app-a/src/main/java/com/demo/appa/WorkResult.java
+
+  Extract the inner class from BClient.java into a top-level class:
+
+  package com.demo.appa;
+
+  public class WorkResult {
+      private final boolean ok;
+      private final String code;
+      private final long latencyMs;
+      private final ErrorCode errorCode;
+
+      public WorkResult(boolean ok, String code, long latencyMs, ErrorCode errorCode) {
+          this.ok = ok;
+          this.code = code;
+          this.latencyMs = latencyMs;
+          this.errorCode = errorCode;
+      }
+
+      public boolean isOk() { return ok; }
+      public String getCode() { return code; }
+      public long getLatencyMs() { return latencyMs; }
+      public ErrorCode getErrorCode() { return errorCode; }
+  }
+
+  ---
+  File 3: apps/app-a/src/main/java/com/demo/appa/ResilientBClient.java
+
+  package com.demo.appa;
+
+  import com.demo.grpc.DemoServiceGrpc;
+  import com.demo.grpc.WorkReply;
+  import com.demo.grpc.WorkRequest;
+  import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+  import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+  import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.SlidingWindowType;
+  import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+  import io.grpc.ManagedChannel;
+  import io.grpc.ManagedChannelBuilder;
+  import io.grpc.StatusRuntimeException;
+  import org.slf4j.Logger;
+  import org.slf4j.LoggerFactory;
+  import org.springframework.beans.factory.annotation.Autowired;
+  import org.springframework.beans.factory.annotation.Value;
+  import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+  import org.springframework.stereotype.Component;
+
+  import javax.annotation.PostConstruct;
+  import javax.annotation.PreDestroy;
+  import java.time.Duration;
+  import java.util.concurrent.Semaphore;
+  import java.util.concurrent.TimeUnit;
+
+  @Component
+  @ConditionalOnProperty(name = "resilience.enabled", havingValue = "true")
+  public class ResilientBClient implements BClientPort {
+      private static final Logger logger = LoggerFactory.getLogger(ResilientBClient.class);
+
+      @Value("${b.service.url}")
+      private String bServiceUrl;
+
+      @Value("${b.deadline.ms:800}")
+      private int deadlineMs;
+
+      @Value("${b.inflight.max:10}")
+      private int maxInflight;
+
+      @Autowired
+      private MetricsService metricsService;
+
+      private Semaphore semaphore;
+      private CircuitBreaker circuitBreaker;
+      private ManagedChannel channel;
+      private DemoServiceGrpc.DemoServiceBlockingStub stub;
+
+      @PostConstruct
+      public void init() {
+          // gRPC channel
+          channel = ManagedChannelBuilder.forTarget(bServiceUrl)
+                  .usePlaintext()
+                  .build();
+          stub = DemoServiceGrpc.newBlockingStub(channel);
+
+          // Bulkhead: fair semaphore, non-blocking tryAcquire
+          semaphore = new Semaphore(maxInflight, true);
+
+          // Circuit breaker: per-downstream "B"
+          CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+                  .slidingWindowType(SlidingWindowType.COUNT_BASED)
+                  .slidingWindowSize(10)
+                  .minimumNumberOfCalls(5)
+                  .failureRateThreshold(50.0f)
+                  .slowCallRateThreshold(80.0f)
+                  .slowCallDurationThreshold(Duration.ofMillis(deadlineMs))
+                  .waitDurationInOpenState(Duration.ofSeconds(10))
+                  .permittedNumberOfCallsInHalfOpenState(3)
+                  .automaticTransitionFromOpenToHalfOpenEnabled(true)
+                  .build();
+          circuitBreaker = CircuitBreakerRegistry.of(config).circuitBreaker("B");
+
+          // Wire breaker state transitions → metrics
+          circuitBreaker.getEventPublisher().onStateTransition(event -> {
+              int state = switch (circuitBreaker.getState()) {
+                  case OPEN -> 1;
+                  case HALF_OPEN -> 2;
+                  default -> 0;
+              };
+              metricsService.setBreakerState(state);
+          });
+
+          logger.info("ResilientBClient initialized: url={}, deadline={}ms, maxInflight={}",
+                  bServiceUrl, deadlineMs, maxInflight);
+      }
+
+      @Override
+      public WorkResult callWork(String requestId) {
+          // Step 1: Bulkhead check (MUST be non-blocking tryAcquire)
+          if (!semaphore.tryAcquire()) {
+              metricsService.recordDownstreamCall(0, ErrorCode.QUEUE_FULL);
+              logger.warn("Bulkhead saturated [max={}] → QUEUE_FULL", maxInflight);
+              return new WorkResult(false, ErrorCode.QUEUE_FULL.name(), 0, ErrorCode.QUEUE_FULL);
+          }
+
+          // Step 2: Circuit breaker check
+          if (!circuitBreaker.tryAcquirePermission()) {
+              semaphore.release();
+              metricsService.recordDownstreamCall(0, ErrorCode.CIRCUIT_OPEN);
+              logger.warn("Circuit breaker OPEN → CIRCUIT_OPEN");
+              return new WorkResult(false, ErrorCode.CIRCUIT_OPEN.name(), 0, ErrorCode.CIRCUIT_OPEN);
+          }
+
+          long start = System.currentTimeMillis();
+          metricsService.incrementInflight();
+          try {
+              // Step 3: gRPC call with per-call deadline
+              WorkReply reply = stub
+                      .withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
+                      .work(WorkRequest.newBuilder().setId(requestId).build());
+
+              long latency = System.currentTimeMillis() - start;
+              circuitBreaker.onSuccess(latency, TimeUnit.MILLISECONDS);
+              metricsService.recordDownstreamCall(latency, ErrorCode.SUCCESS);
+              return new WorkResult(reply.getOk(), reply.getCode(), latency, ErrorCode.SUCCESS);
+
+          } catch (StatusRuntimeException e) {
+              long latency = System.currentTimeMillis() - start;
+              ErrorCode code = ErrorCode.fromGrpcStatus(e.getStatus().getCode());
+              circuitBreaker.onError(latency, TimeUnit.MILLISECONDS, e);
+              metricsService.recordDownstreamCall(latency, code);
+              logger.error("gRPC call failed after {}ms: {} → {}", latency, e.getStatus(), code);
+              return new WorkResult(false, code.name(), latency, code);
+
+          } finally {
+              metricsService.decrementInflight();
+              semaphore.release();  // ALWAYS release in finally
+          }
+      }
+
+      @PreDestroy
+      public void shutdown() {
+          if (channel != null) {
+              logger.info("Shutting down ResilientBClient gRPC channel");
+              channel.shutdown();
+          }
+      }
+  }
+
+  ---
+  File 4: chart/values-resilient.yaml
+
+  # Resilient mode: P0 patterns enabled
+  # Deadline + bulkhead + circuit breaker via RESILIENCE_ENABLED=true
+
+  resilience:
+    enabled: true
+
+  appA:
+    env:
+      - name: RESILIENCE_ENABLED
+        value: "true"
+      - name: DEADLINE_MS
+        value: "800"
+      - name: MAX_INFLIGHT
+        value: "10"
+
+  ---
+  5. Files to MODIFY (5 files)
+
+  ---
+  Modify 1: apps/app-a/pom.xml
+
+  Add after the javax.annotation dependency block:
+
+  <!-- Resilience4j: Circuit Breaker for P0 patterns -->
+  <dependency>
+      <groupId>io.github.resilience4j</groupId>
+      <artifactId>resilience4j-circuitbreaker</artifactId>
+      <version>2.2.0</version>
+  </dependency>
+
+  ---
+  Modify 2: apps/app-a/src/main/java/com/demo/appa/BClient.java
+
+  Three targeted changes:
+
+  a. Add import + annotation after existing imports:
+  import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
+  b. Add @ConditionalOnProperty and implements BClientPort to the class:
+  @Component
+  @ConditionalOnProperty(name = "resilience.enabled", havingValue = "false", matchIfMissing = true)
+  public class BClient implements BClientPort {
+
+  c. Update WorkResult references — the inner class becomes top-level:
+  - Remove the WorkResult static inner class from BClient entirely
+  - Update return types and constructor calls: new BClient.WorkResult(...) → new WorkResult(...)
+
+  ---
+  Modify 3: apps/app-a/src/main/java/com/demo/appa/WorkController.java
+
+  Two line changes:
+
+  // BEFORE:
+  import ...;
+  ...
+  @Autowired
+  private BClient bClient;
+  ...
+  BClient.WorkResult result = bClient.callWork(requestId);
+
+  // AFTER:
+  import ...;
+  ...
+  @Autowired
+  private BClientPort bClient;
+  ...
+  WorkResult result = bClient.callWork(requestId);
+
+  ---
+  Modify 4: apps/app-a/src/main/java/com/demo/appa/MetricsService.java
+
+  Three targeted changes:
+
+  a. Add field after inflightRequests:
+  private final AtomicInteger inflightRequests;
+  private final AtomicInteger breakerState = new AtomicInteger(0);  // ADD
+
+  b. Fix the hardcoded gauge:
+  // BEFORE:
+  Gauge.builder("a_breaker_state", () -> 0)
+
+  // AFTER:
+  Gauge.builder("a_breaker_state", breakerState, AtomicInteger::get)
+
+  c. Add new public method (at end of class):
+  public void setBreakerState(int state) {
+      breakerState.set(state);
+  }
+
+  ---
+  Modify 5: apps/app-a/src/main/resources/application.yml
+
+  Add resilience config bindings:
+
+  server:
+    port: 8080
+
+  resilience:
+    enabled: ${RESILIENCE_ENABLED:false}
+
+  b:
+    service:
+      url: ${B_SERVICE_URL:localhost:50051}
+    deadline:
+      ms: ${DEADLINE_MS:800}
+    inflight:
+      max: ${MAX_INFLIGHT:10}
+
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,prometheus
+    metrics:
+      export:
+        prometheus:
+          enabled: true
+
+  logging:
+    level:
+      com.demo.appa: INFO
+      io.grpc: WARN
+
+  ---
+  6. Guardrails (Non-Negotiable)
+
+  From .clinerules/40_resilience_patterns.md:
+
+  - ✅ R1: Every call MUST use withDeadlineAfter(deadlineMs, MILLISECONDS) — no infinite waits
+  - ✅ R2: Bulkhead MUST use semaphore.tryAcquire() — never acquire() (blocks thread)
+  - ✅ R3: Circuit breaker MUST be named "B" (per-downstream, not global)
+  - ✅ R4: semaphore.release() MUST be in finally block — never skipped
+
+  Anti-patterns that will fail Architect review:
+  - ❌ semaphore.acquire() instead of tryAcquire()
+  - ❌ Releasing semaphore AFTER circuit breaker check (release it if CB rejects)
+  - ❌ Missing cb.onError() call in catch block
+  - ❌ RESILIENCE_ENABLED defaulting to true (must default to false)
+
+  ---
+  7. DoD Proof Commands
+
+  Run ALL three proofs. Save outputs to ./tmp/proof_t04.txt.
+
+  Proof 1 — Build succeeds:
+
+  docker build -t app-a:dev -f apps/app-a/Dockerfile .
+  # Expected: Successfully built (no compile errors)
+
+
+  Proof 2 — Baseline compatibility (RESILIENCE_ENABLED=false):
+
+  docker run -d -p 8080:8080 \
+    -e RESILIENCE_ENABLED=false \
+    -e B_SERVICE_URL=localhost:50051 \
+    --name test-a-baseline app-a:dev
+
+  sleep 5
+  curl -s http://localhost:8080/api/work | jq .code
+  # Expected: "UNAVAILABLE" (no B running) — NOT QUEUE_FULL or CIRCUIT_OPEN
+
+  docker rm -f test-a-baseline
+
+
+  Proof 3 — Resilient mode: QUEUE_FULL triggered:
+
+  # Start B with high delay
+  docker run -d -p 50051:50051 \
+    -e B_DELAY_MS=2000 --name test-b app-b:dev
+
+  # Start A resilient with small inflight cap (3) to trigger QUEUE_FULL easily
+  docker run -d -p 8080:8080 \
+    -e RESILIENCE_ENABLED=true \
+    -e DEADLINE_MS=500 \
+    -e MAX_INFLIGHT=3 \
+    -e B_SERVICE_URL=host.docker.internal:50051 \
+    --name test-a-resilient app-a:dev
+
+  sleep 5
+
+  # Fire 20 concurrent requests
+  for i in $(seq 1 20); do curl -s http://localhost:8080/api/work & done; wait
+
+  # Verify QUEUE_FULL in prometheus metrics
+  curl -s http://localhost:8080/actuator/prometheus \
+    | grep 'a_downstream_errors_total.*QUEUE_FULL'
+  # Expected: a_downstream_errors_total{code="QUEUE_FULL",...} > 0
+
+  # Check breaker state metric exists
+  curl -s http://localhost:8080/actuator/prometheus \
+    | grep 'a_breaker_state'
+  # Expected: a_breaker_state{downstream="B"} N.0
+
+  docker rm -f test-a-resilient test-b
+
+
+  ---
+  8. Commit Instructions
+
+  Follow skills/git_commit_skill.md exactly:
+
+  mkdir -p ./tmp
+
+  cat > ./tmp/COMMIT_MSG <<'EOF'
+  feat: Add resilient P0 wrapper with deadline, bulkhead, circuit breaker
+
+  Implements T04 resilience patterns in app-a:
+  - Deadline: withDeadlineAfter(deadlineMs) on every gRPC call
+  - Bulkhead: Semaphore(maxInflight) with non-blocking tryAcquire → QUEUE_FULL
+  - Circuit breaker: Resilience4j per-downstream "B" → CIRCUIT_OPEN
+  - Feature flag: RESILIENCE_ENABLED=false default (baseline compat preserved)
+
+  Architecture:
+  - BClientPort interface for conditional Spring bean switching
+  - @ConditionalOnProperty selects BClient or ResilientBClient at startup
+  - MetricsService.a_breaker_state now dynamic (was hardcoded 0)
+  - WorkResult extracted to top-level class
+
+  New files: BClientPort.java, WorkResult.java, ResilientBClient.java,
+             chart/values-resilient.yaml
+  Modified:  BClient.java, WorkController.java, MetricsService.java,
+             application.yml, pom.xml
+
+  Closes #8
+  EOF
+
+  # Gate: no automation artifacts
+  grep -qE "(Co-authored-by:|Signed-off-by:)" ./tmp/COMMIT_MSG && echo "ERROR" || echo "✅ Clean"
+
+  # Stage all T04 files
+  git add apps/app-a/ chart/values-resilient.yaml
+
+  # Verify staged
+  git diff --cached --stat
+
+  # Commit
+  git commit -F ./tmp/COMMIT_MSG
+
+  # Verify
+  git show -s --format=%B HEAD
+
+
+  ---
+  9. After Committing
+
+  1. Create PR targeting master
+  2. Title: feat: T04 resilient P0 wrapper (deadline + bulkhead + circuit breaker)
+  3. Post all 3 proof outputs as PR comment
+  4. Tag: Architect review requested
+  5. Comment on issue #9 noting path correction:
+    - artifacts/S1/resilient/ → tmp/artifacts/S1/resilient/
+
+  ---
+  10. Order of Implementation
+
+  1. Read all existing files first (Step 2 above)
+  2. pom.xml → add Resilience4j
+  3. WorkResult.java → create (extract from BClient)
+  4. BClientPort.java → create (interface)
+  5. BClient.java → add implements + @Conditional + remove inner WorkResult
+  6. MetricsService.java → make breaker_state dynamic
+  7. application.yml → add bindings
+  8. WorkController.java → change types
+  9. ResilientBClient.java → create (main implementation)
+  10. chart/values-resilient.yaml → create
+  11. docker build → verify compile
+  12. Run Proof 1 (baseline compat)
+  13. Run Proof 2 (QUEUE_FULL triggered)
+  14. Run Proof 3 (breaker state metric)
+  15. Commit → PR → Report to Architect
+
+
+  ---
+  Go ahead and implement T04. Report back with PR link and proof outputs.
