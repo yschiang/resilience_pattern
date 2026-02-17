@@ -19,6 +19,9 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
+# Install network tools for fault injection (S4 scenario)
+RUN apt-get update && apt-get install -y --no-install-recommends iptables iproute2 && rm -rf /var/lib/apt/lists/*
+
 # Copy built JAR
 COPY --from=builder /build/apps/app-a/target/*.jar /app/app.jar
 
