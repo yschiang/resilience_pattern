@@ -59,11 +59,36 @@ kubectl wait --for=condition=Ready pod -l app=app-b --timeout=120s -n "$NAMESPAC
 A_SERVICE=$(kubectl get svc -l app=app-a -o jsonpath='{.items[0].metadata.name}' -n "$NAMESPACE")
 echo "==> A service: $A_SERVICE"
 
-# Run fortio load test (allow failures for baseline data collection)
-echo "==> Running fortio load test (qps=200, c=80, t=60s)..."
-kubectl run fortio-load --rm -i --restart=Never --image=fortio/fortio -n "$NAMESPACE" -- \
-    load -qps 200 -c 80 -t 60s -timeout 2s http://$A_SERVICE:8080/api/work \
-    > "$ARTIFACTS_DIR/fortio.txt" 2>&1 || true
+# Per-scenario concurrency (per plan spec)
+FORTIO_QPS=200
+FORTIO_T=60s
+if [[ "$SCENARIO" == "S1" ]]; then
+    FORTIO_C=80
+else
+    FORTIO_C=50
+fi
+
+# Run fortio load test
+echo "==> Running fortio load test (qps=$FORTIO_QPS, c=$FORTIO_C, t=$FORTIO_T)..."
+if [[ "$SCENARIO" == "S1" ]]; then
+    kubectl run fortio-load --rm -i --restart=Never --image=fortio/fortio -n "$NAMESPACE" -- \
+        load -qps $FORTIO_QPS -c $FORTIO_C -t $FORTIO_T -timeout 2s http://$A_SERVICE:8080/api/work \
+        > "$ARTIFACTS_DIR/fortio.txt" 2>&1 || true
+else
+    # S4: run fortio in background, inject fault at t=15s, then wait
+    kubectl run fortio-load --rm -i --restart=Never --image=fortio/fortio -n "$NAMESPACE" -- \
+        load -qps $FORTIO_QPS -c $FORTIO_C -t $FORTIO_T -timeout 2s http://$A_SERVICE:8080/api/work \
+        > "$ARTIFACTS_DIR/fortio.txt" 2>&1 < /dev/null &
+    FORTIO_PID=$!
+
+    sleep 15
+
+    A_POD=$(kubectl get pods -l app=app-a -o jsonpath='{.items[0].metadata.name}' -n "$NAMESPACE")
+    echo "==> Injecting fault into A pod: $A_POD"
+    "$SCRIPT_DIR/inject_s4.sh" "$A_POD" "$NAMESPACE"
+
+    wait $FORTIO_PID || true
+fi
 
 echo "==> Collecting artifacts..."
 

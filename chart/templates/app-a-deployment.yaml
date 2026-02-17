@@ -18,6 +18,9 @@ spec:
       - name: {{ .Values.appA.name }}
         image: "{{ .Values.appA.image.repository }}:{{ .Values.appA.image.tag }}"
         imagePullPolicy: {{ .Values.appA.image.pullPolicy }}
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
         ports:
         - containerPort: 8080
           name: http
