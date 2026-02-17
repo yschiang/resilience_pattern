@@ -15,14 +15,14 @@ public class WorkController {
     private static final Logger logger = LoggerFactory.getLogger(WorkController.class);
 
     @Autowired
-    private BClient bClient;
+    private BClientPort bClient;
 
     @GetMapping("/work")
     public WorkResponse work() {
         String requestId = UUID.randomUUID().toString();
         logger.info("Handling /api/work request: {}", requestId);
 
-        BClient.WorkResult result = bClient.callWork(requestId);
+        WorkResult result = bClient.callWork(requestId);
 
         return new WorkResponse(
                 result.isOk(),

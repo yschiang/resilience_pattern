@@ -18,10 +18,12 @@ public class MetricsService {
     private final MeterRegistry registry;
     private final Timer downstreamLatency;
     private final AtomicInteger inflightRequests;
+    private final AtomicInteger breakerState;
 
     public MetricsService(MeterRegistry registry) {
         this.registry = registry;
         this.inflightRequests = new AtomicInteger(0);
+        this.breakerState = new AtomicInteger(0);
 
         // Timer for latency tracking (automatically provides p95, p99 quantiles)
         this.downstreamLatency = Timer.builder("a_downstream_latency_ms")
@@ -38,11 +40,14 @@ public class MetricsService {
                 .register(registry);
 
         // Gauge for circuit breaker state (0=closed, 1=open, 2=half-open)
-        // For baseline: always 0 (no breaker yet)
-        Gauge.builder("a_breaker_state", () -> 0)
+        Gauge.builder("a_breaker_state", breakerState, AtomicInteger::get)
                 .description("Circuit breaker state for downstream B")
                 .tag("downstream", "B")
                 .register(registry);
+    }
+
+    public void setBreakerState(int state) {
+        breakerState.set(state);
     }
 
     /**
