@@ -1,0 +1,16 @@
+feat: Add T04 resilient wrapper (deadline, bulkhead, circuit breaker)
+
+- Add BClientPort interface; WorkController now autowires port not impl
+- Extract WorkResult to top-level class
+- BClient: @ConditionalOnProperty(resilience.enabled=false, matchIfMissing=true)
+- ResilientBClient: @ConditionalOnProperty(resilience.enabled=true)
+  - withDeadlineAfter(deadlineMs, MILLISECONDS) on every gRPC call
+  - Semaphore bulkhead: tryAcquire() non-blocking; release() in finally
+  - Resilience4j CircuitBreaker "B": COUNT_BASED 10 calls, 50% threshold
+  - Returns QUEUE_FULL or CIRCUIT_OPEN with latencyMs=0 on fast-fail
+- MetricsService: a_breaker_state gauge now dynamic (AtomicInteger)
+- application.yml: add resilience.enabled, b.deadline.ms, b.inflight.max
+- chart/values-resilient.yaml: RESILIENCE_ENABLED=true, DEADLINE_MS=800
+- pom.xml: add resilience4j-circuitbreaker:2.2.0
+
+Relates to #8

@@ -1,0 +1,15 @@
+feat: Add scenario runner S1 baseline (#16)
+
+Merged by Architect under delegated authority.
+
+Includes:
+- Scenario runner script (run_scenario.sh) with namespace support
+- tmp/artifacts consolidation (9 files updated)
+- Baseline S1 evidence collection (8 artifacts)
+
+Quality gates passed:
+- Namespace support verified (-n demo)
+- Baseline failure demonstrated (200ms → 3500ms escalation)
+- DoD proofs comprehensive (latency, queue depth, errors)
+
+Closes #6 (T09A)

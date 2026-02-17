@@ -1,0 +1,192 @@
+⏺ 🧠 Investigation Complete — Full Picture                                                                                                        
+                                                                                                                                                  
+  ---                                                                                                                                             
+  Findings Summary                                                                                                                                
+                                                                                                                                                  
+  1. P1 Milestone Status: COMPLETE ✅                                                                                                             
+
+  P1 Baseline Evidence Ready
+    #6 CLOSED - T03 Metrics & semantic error taxonomy ✅
+    #7 CLOSED - T09A Scenario runner: S1 baseline + artifacts ✅
+
+
+  Action needed: Close P1 milestone on GitHub (both issues closed)
+
+  ---
+  2. App-A Current State: Baseline Only
+
+  ┌───────────────────────┬─────────────┬──────────────────────────────────────────────────────────────────────────────────────┐
+  │       Component       │   Status    │                                     What Exists                                      │
+  ├───────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+  │ BClient.java          │ ✅ Baseline │ Single gRPC channel, no deadline, no bulkhead, no breaker                            │
+  ├───────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+  │ ErrorCode.java        │ ✅ Complete │ ALL codes defined: SUCCESS, DEADLINE_EXCEEDED, UNAVAILABLE, QUEUE_FULL, CIRCUIT_OPEN │
+  ├───────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+  │ MetricsService.java   │ ✅ Complete │ Latency, inflight gauge, error counter. Breaker hardcoded to () -> 0                 │
+  ├───────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+  │ Resilience4j          │ ❌ Missing  │ NOT in pom.xml                                                                       │
+  ├───────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+  │ ResilientBClient.java │ ❌ Missing  │ Not created yet                                                                      │
+  ├───────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+  │ values-resilient.yaml │ ❌ Missing  │ Not in chart/                                                                        │
+  └───────────────────────┴─────────────┴──────────────────────────────────────────────────────────────────────────────────────┘
+
+  Key insight: The foundation is excellent. ErrorCode taxonomy and metrics are fully ready. T04 only needs to ADD the resilient wrapper — no
+  restructuring required.
+
+  ---
+  3. Next Milestone: P2 Resilient P0 (Stop the bleeding)
+
+  P2 Resilient P0
+    #8 OPEN - T04 Resilient P0 wrapper  ← CRITICAL PATH BLOCKER
+    #9 OPEN - T09B Scenario runner: S1 resilient  ← DEPENDS ON T04
+
+
+  T04 scope (from issue #8):
+  1. Deadline per gRPC call: withDeadlineAfter(deadlineMs)
+  2. Bounded inflight bulkhead: maxInflightPerPod semaphore → QUEUE_FULL
+  3. Circuit breaker: fail-fast on repeated failures → CIRCUIT_OPEN
+  4. Feature flag: RESILIENCE_ENABLED=false (baseline compatibility preserved)
+
+  ---
+  4. Minor Issues Found
+
+  T09B issue #9 path mismatch:
+  - Issue references: artifacts/S1/resilient/
+  - Should be: tmp/artifacts/S1/resilient/ (after our refactor)
+  - Needs: Issue comment/update before execution
+
+  ---
+  5. Full Milestone Roadmap
+
+  P1 Baseline Evidence Ready      ← DONE (close milestone)
+    #6 T03 ✅  #7 T09A ✅
+
+  P2 Resilient P0 (Stop bleeding) ← START HERE
+    #8 T04: ResilientBClient      ← DO FIRST (critical path)
+    #9 T09B: S1 resilient run     ← DEPENDS ON T04
+
+  P3 Resilient P1 (Self-heal)     ← AFTER P2
+    #10 T05: keepalive + channel pool
+    #11 T10: S4 fault injection (iptables)
+    #12 T09C: S4 baseline + resilient artifacts
+
+  P4 Verification + Docs          ← AFTER P3
+    #13 T11: verify_s1.sh + verify_s4.sh
+    #14 T12: docs packaging + runbook
+
+
+  ---
+  Plan: P2 Execution
+
+  Pre-work (Before T04): 30 mins
+
+  1. Close P1 milestone on GitHub (already earned)
+  2. Update issue #9 path: artifacts/ → tmp/artifacts/
+  3. Read T04 issue fully before starting implementation
+
+  ---
+  T04: ResilientBClient — Implementation Plan
+
+  Files to create/modify:
+
+  apps/app-a/
+  ├── pom.xml                          ← ADD Resilience4j dependency
+  ├── src/main/java/com/demo/appa/
+  │   ├── BClient.java                 ← RENAME to BaselineBClient.java
+  │   ├── ResilientBClient.java        ← NEW: deadline + bulkhead + breaker
+  │   ├── BClientFactory.java          ← NEW: switch on RESILIENCE_ENABLED
+  │   ├── MetricsService.java          ← MODIFY: make breaker_state dynamic
+  │   └── WorkController.java          ← MODIFY: inject via factory
+  └── src/main/resources/
+      └── application.yaml             ← ADD: resilience env var bindings
+
+  chart/
+  └── values-resilient.yaml            ← NEW: RESILIENCE_ENABLED=true, DEADLINE_MS=800, MAX_INFLIGHT=10
+
+
+  ResilientBClient implementation approach:
+
+  // Per call:
+  // 1. Check semaphore (inflight cap) → QUEUE_FULL if full
+  // 2. Circuit breaker check → CIRCUIT_OPEN if open
+  // 3. gRPC call with withDeadlineAfter(deadlineMs) → DEADLINE_EXCEEDED if timeout
+  // 4. On success: record, release semaphore
+  // 5. On failure: record error, release semaphore, breaker records failure
+
+  New env vars:
+
+  RESILIENCE_ENABLED=false   (default, baseline compat)
+  DEADLINE_MS=800            (gRPC call deadline)
+  MAX_INFLIGHT=10            (per-pod bulkhead limit)
+  BREAKER_FAILURE_RATE=50    (% failures to open breaker)
+  BREAKER_WINDOW_SIZE=10     (calls in sliding window)
+
+
+  Expected P2 outcomes vs baseline:
+
+  ┌───────────────┬───────────────────┬───────────────────────────┐
+  │    Metric     │    S1 Baseline    │       S1 Resilient        │
+  ├───────────────┼───────────────────┼───────────────────────────┤
+  │ p99 latency   │ 3700ms            │ ≤800ms (deadline)         │
+  ├───────────────┼───────────────────┼───────────────────────────┤
+  │ Error type    │ timeout           │ QUEUE_FULL / CIRCUIT_OPEN │
+  ├───────────────┼───────────────────┼───────────────────────────┤
+  │ Inflight      │ 17-34 (unbounded) │ ≤10 (bulkhead)            │
+  ├───────────────┼───────────────────┼───────────────────────────┤
+  │ Breaker state │ 0 (closed)        │ 1 (open under load)       │
+  └───────────────┴───────────────────┴───────────────────────────┘
+
+  ---
+  T09B: S1 Resilient Run
+
+  - Fix artifact path in issue first
+  - Run: ./scripts/run_scenario.sh S1 resilient
+  - Compare: tmp/artifacts/S1/baseline/ vs tmp/artifacts/S1/resilient/
+  - Expected: clear improvement across all metrics
+
+  ---
+  Recommended Sequence
+
+  Step 1 → Close P1 milestone (5 min)
+  Step 2 → Update issue #9 path (5 min)
+  Step 3 → Developer implements T04 (2-3 hours)
+             - Add Resilience4j to pom.xml
+             - Create ResilientBClient.java
+             - Create BClientFactory.java
+             - Update MetricsService.java (dynamic breaker state)
+             - Update WorkController.java
+             - Create chart/values-resilient.yaml
+  Step 4 → Build + test locally (30 min)
+             - docker build app-a
+             - docker run with RESILIENCE_ENABLED=true
+             - curl /api/work → expect QUEUE_FULL or CIRCUIT_OPEN under load
+  Step 5 → Architect reviews T04 code (30 min)
+  Step 6 → Create PR, merge
+  Step 7 → Developer runs T09B (60 min)
+             - Deploy to Kind with values-resilient.yaml
+             - ./scripts/run_scenario.sh S1 resilient
+             - Collect 8 artifacts
+             - Compare with baseline
+  Step 8 → Architect gates T09B artifacts
+  Step 9 → Close P2 milestone
+  Step 10 → Plan P3 (T05, T10, T09C)
+
+
+  ---
+  Immediate Next Actions
+
+  1. Close P1 milestone — fully earned:
+
+  gh api repos/yschiang/resilience_pattern/milestones \
+    --jq '.[] | select(.title=="P1 Baseline Evidence Ready") | .number'
+  # Then close it
+
+
+  2. Start P2 with T04 — tell Developer to implement ResilientBClient
+
+  ---
+  Shall I:
+  - A. Close P1 milestone + update issue #9 path + start T04 now?
+  - B. Review T04 issue/plan in more detail first?
+  - C. Different priority?

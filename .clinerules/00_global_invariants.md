@@ -35,6 +35,24 @@ Script tasks: run script + show artifacts count
 - Artifacts: `tmp/artifacts/` (gitignored under tmp/)
 - Proto: `proto/`
 
+## Working Artifact Convention (tmp/ → work-history/)
+
+Every working artifact MUST be saved to `tmp/<TASK>/` as it is created:
+
+| Artifact | Filename |
+|---|---|
+| Architect plan / investigation | `tmp/T<N>/plan.md` |
+| Developer prompt | `tmp/T<N>/prompt.md` |
+| Commit message draft | `tmp/T<N>/commit_msg.txt` |
+| DoD proof output | `tmp/T<N>/proof.txt` |
+| Explanation / analysis | `tmp/T<N>/<topic>.md` |
+
+**Rules:**
+- Create the file at the same time as writing the content — not after
+- `tmp/` holds active tasks only (issue still open)
+- When a task closes, move `tmp/T<N>/` → `work-history/T<N>/`
+- `tmp/artifacts/` is separate (scenario outputs, never moved)
+
 ## Proto Contract
 - Package: `demo.v1`
 - Service: `DemoService` (or similar)

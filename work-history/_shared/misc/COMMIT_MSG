@@ -1,0 +1,16 @@
+docs: add PR merge policy to workflow (2-agent model)
+
+- Document PR merge workflow in .clinerules/20_workflow_close_issue.md
+- Establish merge authority: Developer (never), Architect (if delegated), Maintainer (always)
+- Add delegation model: Maintainer can delegate merge to Architect
+- Define when to PR vs direct commit
+- Add pre-merge verification steps for Architect
+- Default merge strategy: squash (clean history)
+
+Policy:
+- Hard rule: Developer never merges own PR
+- Default: Maintainer (user) merges after Architect approval
+- Optional: Maintainer delegates merge authority to Architect
+- Merge authority matrix documented
+
+Changes: +165 lines (new PR workflow section)

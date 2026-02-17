@@ -1,0 +1,13 @@
+feat: Add T05 self-heal (keepalive + channel pool)
+
+- ResilientBClient: replace single channel with pool of N channels
+  - Controlled by CHANNEL_POOL_SIZE env var (default=1)
+  - Round-robin stub selection via AtomicInteger
+  - Keepalive logged explicitly at startup (grep-able)
+  - gRPC keepAliveTime=30s, keepAliveTimeout=10s, keepAliveWithoutCalls=true
+  - Shutdown drains all channels in pool
+- MetricsService: add registerChannelPoolSize() -> a_channel_pool_size gauge
+- application.yml: add b.channel.pool.size binding
+- chart/values-resilient.yaml: CHANNEL_POOL_SIZE=4 (reduces blast radius in S4)
+
+Relates to #10

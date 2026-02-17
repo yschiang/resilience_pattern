@@ -1,0 +1,228 @@
+⏺ 🧠 Ultrathink: Strategic Planning for Next Phase                                                                                                
+                                                                                                                                                
+  Let me analyze the current state and plan the optimal path forward...                                                                           
+                                                            
+  ---                                                                                                                                             
+  Part 1: Current State Assessment                          
+
+  What We Have ✅
+
+  Infrastructure (P0 Complete):
+  - ✅ Kind cluster: resilience-pattern
+  - ✅ Apps: A (Spring Boot, 2 pods) → B (Go gRPC, 3 pods)
+  - ✅ Helm chart: chart/ with values overlays
+  - ✅ Docker images: app-a, app-b built and loaded
+  - ✅ Namespace: demo
+
+  P1 Progress:
+  - ✅ T09A: S1 baseline scenario + runner script + 8 artifacts collected
+  - ✅ Baseline evidence: Demonstrated failure mode (200ms → 3500ms escalation)
+  - ✅ tmp/artifacts/ structure established
+
+  Process & Documentation:
+  - ✅ 2-agent model (Developer + Architect)
+  - ✅ .clinerules/ workflow (implement, review, merge)
+  - ✅ Commit policy (conventional commits, no Co-authored-by)
+  - ✅ work-history/ archive of P0 learnings
+
+  ---
+  Part 2: What's Unknown / Needs Investigation
+
+  Critical Questions:
+
+  Q1: What are ALL the P1 milestone issues?
+  - We know: T09A (done), T09B, T09C (mentioned)
+  - We don't know: Are there other T09 tasks? T10? T11?
+  - Need to: gh issue list --milestone "P1: Baseline Evidence"
+
+  Q2: Does app-a have resilience patterns implemented?
+  - T03 added metrics + error taxonomy (done, on master)
+  - Unknown: Circuit breaker? Bulkhead? Deadline enforcement?
+  - Need to: Read apps/app-a/src/ code to check for Resilience4j usage
+
+  Q3: Does values-resilient.yaml exist?
+  - We have: values-common.yaml, values-baseline.yaml, values-s1.yaml, values-s4.yaml
+  - Unknown: values-resilient.yaml for toggling resilience.enabled=true
+  - Need to: ls chart/values-*.yaml
+
+  Q4: What's the scope of P1 vs P2-P4?
+  - Hypothesis 1: P1 = collect evidence (baseline only), P2 = implement patterns
+  - Hypothesis 2: P1 = collect evidence (baseline + resilient), patterns already exist
+  - Need to: Check milestone definitions, read plan.md for P2 scope
+
+  ---
+  Part 3: Investigation Plan (5-Step Discovery)
+
+  Step 1: List P1 Milestone Issues
+
+  gh issue list --milestone "P1: Baseline Evidence" --json number,title,state,body
+
+
+  Goal: Understand full scope of P1 tasks
+
+  Step 2: Check App-A for Resilience Patterns
+
+  # Check for Resilience4j dependencies
+  grep -r "resilience4j" apps/app-a/
+
+  # Check for circuit breaker implementation
+  grep -r "CircuitBreaker\|@CircuitBreaker" apps/app-a/src/
+
+  # Check for bulkhead
+  grep -r "Bulkhead\|@Bulkhead" apps/app-a/src/
+
+  # Check application.yaml for resilience config
+  cat apps/app-a/src/main/resources/application.yaml | grep -A 10 resilience
+
+
+  Goal: Determine if resilience is implemented or needs implementation
+
+  Step 3: Check Helm Values for Resilient Mode
+
+  ls -la chart/values-*.yaml
+  cat chart/values-resilient.yaml 2>/dev/null || echo "File doesn't exist"
+
+
+  Goal: Verify if resilient mode toggle exists
+
+  Step 4: Review Plan.md for P2 Scope
+
+  grep -A 20 "P2:" docs/plan.md
+  grep -A 20 "P1:" docs/plan.md
+
+
+  Goal: Clarify milestone boundaries
+
+  Step 5: Check Execution Order
+
+  grep -E "T09|T10|T11" docs/execution_order.md
+
+
+  Goal: Understand task dependencies and sequence
+
+  ---
+  Part 4: Decision Tree (Based on Investigation Results)
+
+  Path A: Resilience Already Implemented
+
+  If: app-a has circuit breaker, bulkhead, deadline enforcement
+  Then:
+  1. Run T09B: S1 resilient mode
+  2. Run T09C: S4 baseline + resilient
+  3. Compare baseline vs resilient artifacts
+  4. Complete P1 milestone
+  5. Move to P2 (next phase)
+
+  Timeline: 2-3 hours (mostly test execution)
+
+  ---
+  Path B: Resilience NOT Implemented
+
+  If: app-a only has metrics (T03), no resilience patterns
+  Then:
+  1. Clarify P1 scope:
+    - Option B1: P1 = baseline only (skip resilient for now)
+    - Option B2: P1 = baseline + implement patterns + resilient
+  2. If B1: Complete P1 with baseline scenarios only, defer resilient to P2
+  3. If B2: Implement resilience patterns first (T10, T11?), then run resilient scenarios
+
+  Timeline:
+  - B1: 1-2 hours (S4 baseline scenarios)
+  - B2: 8-12 hours (implement patterns + scenarios)
+
+  ---
+  Path C: Partial Implementation
+
+  If: Some patterns exist (e.g., circuit breaker) but not all (bulkhead, deadline)
+  Then:
+  1. Assess which patterns are implemented
+  2. Run resilient scenarios with partial patterns
+  3. Document gaps in artifacts
+  4. Plan completion for P2
+
+  Timeline: 3-4 hours (mixed approach)
+
+  ---
+  Part 5: Recommended Next Actions (Immediate)
+
+  Action 1: Run Investigation (15 minutes)
+
+  Execute the 5-step discovery plan to gather facts:
+
+  # 1. P1 issues
+  gh issue list --milestone "P1: Baseline Evidence" --json number,title,state
+
+  # 2. Resilience patterns in code
+  grep -r "resilience4j\|CircuitBreaker\|Bulkhead" apps/app-a/
+
+  # 3. Values files
+  ls chart/values-*.yaml
+
+  # 4. P1/P2 definitions
+  grep -A 15 "^##.*P1:\|^##.*P2:" docs/plan.md
+
+  # 5. Execution order
+  grep "T09\|T10\|T11" docs/execution_order.md | head -20
+
+
+  Action 2: Make Informed Decision (5 minutes)
+
+  Based on investigation results:
+  - If Path A → Proceed with T09B/C directly
+  - If Path B → Choose between B1 (baseline only) or B2 (implement first)
+  - If Path C → Assess partial state, decide on completion strategy
+
+  Action 3: Execute Plan (Variable Time)
+
+  - Create task list using TaskCreate
+  - Follow .clinerules workflow for each task
+  - Use Developer/Architect agents as needed
+
+  ---
+  Part 6: Strategic Considerations
+
+  Priority 1: Velocity vs Completeness
+
+  Fast Path (Baseline Only):
+  - Complete P1 with baseline scenarios (S1 done, S4 remaining)
+  - Defer resilient mode to P2 when patterns are implemented
+  - Pros: Quick P1 completion, clear milestone boundaries
+  - Cons: Delays value demonstration (baseline vs resilient comparison)
+
+  Complete Path (Baseline + Resilient):
+  - Implement patterns if missing
+  - Collect both baseline and resilient evidence in P1
+  - Pros: Full comparison ready, higher demo value
+  - Cons: Longer timeline, potential scope creep
+
+  Priority 2: Demo Readiness
+
+  Key Question: When do you want to demo this?
+  - Soon (1-2 days): Choose fast path, show baseline failures
+  - Later (1+ week): Choose complete path, show resilience value
+
+  Priority 3: Learning Goals
+
+  Focus on Infrastructure: Fast path (get scenarios working)
+  Focus on Resilience Patterns: Complete path (implement Circuit Breaker, etc.)
+
+  ---
+  My Recommendation: Investigate First, Then Decide
+
+  Step 1 (Now - 15 min): Run the 5-step investigation
+  Step 2 (Next - 5 min): Review results together
+  Step 3 (Then): Choose path based on actual state
+
+  Why this order:
+  - Avoids assumptions (we need facts)
+  - Minimizes wasted effort (don't plan the wrong path)
+  - Enables informed decision (data-driven vs guess-driven)
+
+  ---
+  Shall I execute the investigation now?
+
+  Option 1: "Yes, investigate" → I'll run the 5 steps and report findings
+  Option 2: "I know the state" → Tell me what you know, I'll plan accordingly
+  Option 3: "Different priority" → What should we focus on instead?
+
+  What's your call?
