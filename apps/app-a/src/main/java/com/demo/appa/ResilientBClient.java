@@ -19,8 +19,11 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 @ConditionalOnProperty(name = "resilience.enabled", havingValue = "true")
@@ -36,26 +39,38 @@ public class ResilientBClient implements BClientPort {
     @Value("${b.inflight.max:10}")
     private int maxInflight;
 
+    @Value("${b.channel.pool.size:1}")
+    private int channelPoolSize;
+
     @Autowired
     private MetricsService metricsService;
 
-    private ManagedChannel channel;
-    private DemoServiceGrpc.DemoServiceBlockingStub blockingStub;
+    private List<ManagedChannel> channels;
+    private List<DemoServiceGrpc.DemoServiceBlockingStub> stubs;
+    private final AtomicInteger roundRobin = new AtomicInteger(0);
     private Semaphore semaphore;
     private CircuitBreaker circuitBreaker;
 
     @PostConstruct
     public void init() {
-        logger.info("ResilientBClient initialized: url={}, deadlineMs={}, maxInflight={}",
-                bServiceUrl, deadlineMs, maxInflight);
+        logger.info("ResilientBClient initialized: url={}, deadlineMs={}, maxInflight={}, channelPoolSize={}",
+                bServiceUrl, deadlineMs, maxInflight, channelPoolSize);
+        logger.info("gRPC keepalive: keepAliveTime=30s, keepAliveTimeout=10s, keepAliveWithoutCalls=true");
 
-        channel = ManagedChannelBuilder.forTarget(bServiceUrl)
-                .usePlaintext()
-                .keepAliveTime(30, TimeUnit.SECONDS)
-                .keepAliveTimeout(10, TimeUnit.SECONDS)
-                .keepAliveWithoutCalls(true)
-                .build();
-        blockingStub = DemoServiceGrpc.newBlockingStub(channel);
+        channels = new ArrayList<>(channelPoolSize);
+        stubs = new ArrayList<>(channelPoolSize);
+        for (int i = 0; i < channelPoolSize; i++) {
+            ManagedChannel ch = ManagedChannelBuilder.forTarget(bServiceUrl)
+                    .usePlaintext()
+                    .keepAliveTime(30, TimeUnit.SECONDS)
+                    .keepAliveTimeout(10, TimeUnit.SECONDS)
+                    .keepAliveWithoutCalls(true)
+                    .build();
+            channels.add(ch);
+            stubs.add(DemoServiceGrpc.newBlockingStub(ch));
+        }
+
+        metricsService.registerChannelPoolSize(channelPoolSize);
 
         semaphore = new Semaphore(maxInflight);
 
@@ -85,9 +100,9 @@ public class ResilientBClient implements BClientPort {
 
     @PreDestroy
     public void shutdown() {
-        if (channel != null) {
-            logger.info("Shutting down ResilientBClient gRPC channel");
-            channel.shutdown();
+        logger.info("Shutting down ResilientBClient gRPC channel pool (size={})", channelPoolSize);
+        if (channels != null) {
+            channels.forEach(ManagedChannel::shutdown);
         }
     }
 
@@ -112,12 +127,16 @@ public class ResilientBClient implements BClientPort {
         metricsService.incrementInflight();
         ErrorCode errorCode = ErrorCode.UNKNOWN;
 
+        // Round-robin channel selection
+        DemoServiceGrpc.DemoServiceBlockingStub stub =
+                stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
+
         try {
             WorkRequest request = WorkRequest.newBuilder()
                     .setId(requestId)
                     .build();
 
-            WorkReply reply = blockingStub
+            WorkReply reply = stub
                     .withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
                     .work(request);
 

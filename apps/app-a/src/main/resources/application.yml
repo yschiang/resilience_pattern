@@ -11,6 +11,9 @@ b:
     ms: ${DEADLINE_MS:800}
   inflight:
     max: ${MAX_INFLIGHT:10}
+  channel:
+    pool:
+      size: ${CHANNEL_POOL_SIZE:1}
 
 management:
   endpoints:

@@ -50,6 +50,13 @@ public class MetricsService {
         breakerState.set(state);
     }
 
+    public void registerChannelPoolSize(int size) {
+        Gauge.builder("a_channel_pool_size", () -> size)
+                .description("Number of gRPC channels in the client pool")
+                .tag("downstream", "B")
+                .register(registry);
+    }
+
     /**
      * Record a downstream call with its result.
      * @param durationMs duration in milliseconds
