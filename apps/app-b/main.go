@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -15,15 +16,24 @@ import (
 	pb "app-b/gen"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
+
+type cachedReply struct {
+	reply   *pb.WorkReply
+	expires time.Time
+}
 
 var (
 	requestsTotal int64
 	busy          int32
 	workerMutex   sync.Mutex // Enforces single-thread concurrency
 	delayMS       int
+	failRate      float64  // from FAIL_RATE env var (0.0–1.0)
+	seenRequests  sync.Map // map[string]cachedReply for idempotency
 )
 
 type server struct {
@@ -31,6 +41,20 @@ type server struct {
 }
 
 func (s *server) Work(ctx context.Context, req *pb.WorkRequest) (*pb.WorkReply, error) {
+	// Idempotency: return cached reply if we've seen this ID
+	if req.GetId() != "" {
+		if cached, ok := seenRequests.Load(req.GetId()); ok {
+			if cached.(cachedReply).expires.After(time.Now()) {
+				return cached.(cachedReply).reply, nil
+			}
+		}
+	}
+
+	// Retryable failure injection
+	if failRate > 0 && rand.Float64() < failRate {
+		return nil, status.Errorf(codes.ResourceExhausted, "rate limited")
+	}
+
 	// Enforce single-thread processing
 	workerMutex.Lock()
 	defer workerMutex.Unlock()
@@ -47,11 +71,19 @@ func (s *server) Work(ctx context.Context, req *pb.WorkRequest) (*pb.WorkReply, 
 
 	latency := time.Since(start).Milliseconds()
 
-	return &pb.WorkReply{
+	reply := &pb.WorkReply{
 		Ok:        true,
 		Code:      "SUCCESS",
 		LatencyMs: latency,
-	}, nil
+	}
+	// Cache reply for idempotency
+	if req.GetId() != "" {
+		seenRequests.Store(req.GetId(), cachedReply{
+			reply:   reply,
+			expires: time.Now().Add(30 * time.Second),
+		})
+	}
+	return reply, nil
 }
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +96,10 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# HELP b_requests_total Total number of requests processed\n")
 	fmt.Fprintf(w, "# TYPE b_requests_total counter\n")
 	fmt.Fprintf(w, "b_requests_total %d\n", atomic.LoadInt64(&requestsTotal))
+
+	fmt.Fprintf(w, "# HELP b_fail_rate Configured failure injection rate\n")
+	fmt.Fprintf(w, "# TYPE b_fail_rate gauge\n")
+	fmt.Fprintf(w, "b_fail_rate %.2f\n", failRate)
 }
 
 func main() {
@@ -75,7 +111,26 @@ func main() {
 		}
 	}
 
-	log.Printf("Starting app-b with B_DELAY_MS=%d", delayMS)
+	// Read FAIL_RATE from environment
+	if envRate := os.Getenv("FAIL_RATE"); envRate != "" {
+		if parsed, err := strconv.ParseFloat(envRate, 64); err == nil {
+			failRate = parsed
+		}
+	}
+
+	log.Printf("Starting app-b with B_DELAY_MS=%d FAIL_RATE=%.2f", delayMS, failRate)
+
+	// Cleanup goroutine: evict expired idempotency entries every 30s
+	go func() {
+		for range time.Tick(30 * time.Second) {
+			seenRequests.Range(func(k, v any) bool {
+				if v.(cachedReply).expires.Before(time.Now()) {
+					seenRequests.Delete(k)
+				}
+				return true
+			})
+		}
+	}()
 
 	// Start metrics HTTP server
 	go func() {
