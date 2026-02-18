@@ -20,6 +20,9 @@ public enum ErrorCode {
     /** Request rejected because circuit breaker is open */
     CIRCUIT_OPEN,
 
+    /** Request rejected by downstream rate limiter (RESOURCE_EXHAUSTED, retryable) */
+    RATE_LIMITED,
+
     /** Unknown or unexpected error */
     UNKNOWN;
 
@@ -39,7 +42,7 @@ public enum ErrorCode {
             case UNKNOWN:
                 return UNAVAILABLE;
             case RESOURCE_EXHAUSTED:
-                return QUEUE_FULL;
+                return RATE_LIMITED;
             default:
                 return UNKNOWN;
         }

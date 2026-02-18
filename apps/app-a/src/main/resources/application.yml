@@ -4,6 +4,9 @@ server:
 resilience:
   enabled: ${RESILIENCE_ENABLED:false}
 
+retry:
+  enabled: ${RETRY_ENABLED:false}
+
 b:
   service:
     url: ${B_SERVICE_URL:localhost:50051}

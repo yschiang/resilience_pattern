@@ -21,6 +21,7 @@ import javax.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,6 +58,17 @@ public class ResilientBClient implements BClientPort {
                 bServiceUrl, deadlineMs, maxInflight, channelPoolSize);
         logger.info("gRPC keepalive: keepAliveTime=30s, keepAliveTimeout=10s, keepAliveWithoutCalls=true");
 
+        Map<String, Object> retryPolicy = Map.of(
+                "maxAttempts", "3",
+                "initialBackoff", "0.05s",
+                "maxBackoff", "0.5s",
+                "backoffMultiplier", 2.0,
+                "retryableStatusCodes", List.of("RESOURCE_EXHAUSTED")
+        );
+        Map<String, Object> serviceConfig = Map.of(
+                "methodConfig", List.of(Map.of("name", List.of(Map.of()), "retryPolicy", retryPolicy))
+        );
+
         channels = new ArrayList<>(channelPoolSize);
         stubs = new ArrayList<>(channelPoolSize);
         for (int i = 0; i < channelPoolSize; i++) {
@@ -65,6 +77,8 @@ public class ResilientBClient implements BClientPort {
                     .keepAliveTime(30, TimeUnit.SECONDS)
                     .keepAliveTimeout(10, TimeUnit.SECONDS)
                     .keepAliveWithoutCalls(true)
+                    .defaultServiceConfig(serviceConfig)
+                    .enableRetry()
                     .build();
             channels.add(ch);
             stubs.add(DemoServiceGrpc.newBlockingStub(ch));
