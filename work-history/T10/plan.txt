@@ -1,0 +1,108 @@
+  Developer, here is your prompt:
+                                                                                                                                                  
+  ---
+  Phase 0 + T10 — S4 Fault Injection                                                                                                              
+                                                            
+  Task A: Re-collect S1 Baseline (no code change, ~10 min)
+
+  S1 baseline artifacts were lost. Just run:
+
+  ./scripts/run_scenario.sh S1 baseline
+
+
+  DoD: ls tmp/artifacts/S1/baseline/ | wc -l → 8. No commit needed.
+
+  ---
+  Task B: T10 — S4 Fault Injection (issue #11)
+
+  Two deliverables:
+
+  1. Create scripts/inject_s4.sh (new file, make executable)
+
+  #!/bin/bash
+  set -euo pipefail
+
+  POD="${1:-}"
+  NS="${2:-demo}"
+
+  if [[ -z "$POD" ]]; then
+      echo "Usage: $0 <pod-name> [namespace]"
+      exit 1
+  fi
+
+  if kubectl exec "$POD" -n "$NS" -- iptables -A OUTPUT -p tcp --dport 50051 -j REJECT --reject-with tcp-reset 2>/dev/null; then
+      echo "Injection started (iptables): pod=$POD"
+      sleep 15
+      kubectl exec "$POD" -n "$NS" -- iptables -D OUTPUT -p tcp --dport 50051 -j REJECT --reject-with tcp-reset
+      echo "Injection removed (iptables): pod=$POD"
+  else
+      echo "iptables unavailable, falling back to tc netem: pod=$POD"
+      kubectl exec "$POD" -n "$NS" -- tc qdisc add dev eth0 root netem loss 100%
+      echo "Injection started (tc netem): pod=$POD"
+      sleep 15
+      kubectl exec "$POD" -n "$NS" -- tc qdisc del dev eth0 root
+      echo "Injection removed (tc netem): pod=$POD"
+  fi
+
+
+  2. Modify scripts/run_scenario.sh
+
+  Replace the hardcoded fortio-load block with per-scenario concurrency and S4 background orchestration:
+
+  - Set FORTIO_QPS=200, FORTIO_T=60s; FORTIO_C=80 for S1, FORTIO_C=50 for S4
+  - S1 path: unchanged synchronous kubectl run fortio-load using $FORTIO_C
+  - S4 path:
+    a. Run fortio with < /dev/null in background (&), capture FORTIO_PID=$!
+    b. sleep 15
+    c. Pick first A pod: $(kubectl get pods -l app=app-a -o jsonpath='{.items[0].metadata.name}' -n "$NAMESPACE")
+    d. Call "$SCRIPT_DIR/inject_s4.sh" "$A_POD" "$NAMESPACE" (this internally sleeps 15s and removes)
+    e. wait $FORTIO_PID || true
+
+  Full details and skeleton are in tmp/T10_DEV_PROMPT.md.
+
+  ---
+  DoD for T10
+
+  # 1. Script exists
+  ls -la scripts/inject_s4.sh
+  # Expected: -rwxr-xr-x
+
+  # 2. Standalone injection test
+  A_POD=$(kubectl get pods -l app=app-a -o jsonpath='{.items[0].metadata.name}' -n demo)
+  ./scripts/inject_s4.sh "$A_POD"
+  # Expected: "Injection started" ... "Injection removed"
+
+  # 3. Errors visible in pod logs
+  kubectl logs "$A_POD" -n demo | grep -c -i "UNAVAILABLE\|connection\|reset"
+  # Expected: > 0
+
+  # 4. Full scenario run
+  ./scripts/run_scenario.sh S4 baseline
+  ls tmp/artifacts/S4/baseline/ | wc -l
+  # Expected: 8
+
+
+  ---
+  Commit message (save to tmp/T10_COMMIT_MSG)
+
+  feat: Add S4 fault injection (inject_s4.sh + scenario hook)
+
+  - scripts/inject_s4.sh: iptables tcp-reset injection with tc netem fallback
+    - targets one A pod, sleeps 15s, self-removes
+  - scripts/run_scenario.sh: S4 branch runs fortio in background
+    - per-scenario concurrency: S1=c80, S4=c50 (per plan spec)
+    - S4: fortio background + sleep 15s + inject_s4.sh + wait
+
+  Closes #11
+
+
+  ---
+  After T10 DoD — immediately run T09C (no code change)
+
+  ./scripts/run_scenario.sh S4 baseline
+  ./scripts/run_scenario.sh S4 resilient
+
+
+  Both must produce 8 artifacts. That closes issue #12.
+
+  Then open a PR for the code changes (inject_s4.sh + run_scenario.sh). Do not merge your own PR.

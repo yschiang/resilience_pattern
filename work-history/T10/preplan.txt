@@ -1,0 +1,148 @@
+  Current State                                                                                                                                   
+                                                                                                                                                  
+  ┌─────────────────────────────┬───────────────────────────────────────────┐                                                                     
+  │            Area             │                  Status                   │                                                                     
+  ├─────────────────────────────┼───────────────────────────────────────────┤                                                                     
+  │ Issue #10 (T05)             │ Just closed — code on master since PR #17 │                                                                     
+  ├─────────────────────────────┼───────────────────────────────────────────┤                                                                     
+  │ P0 milestone                │ Closed (was already)                      │                                                                     
+  ├─────────────────────────────┼───────────────────────────────────────────┤                                                                     
+  │ P2 milestone                │ Just closed — 0 open issues               │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ P3 milestone                │ 2 open (#11 T10, #12 T09C)                │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ P4 milestone                │ 2 open (#13 T11, #14 T12)                 │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ tmp/artifacts/S1/resilient/ │ 8 files — T09B complete                   │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ tmp/artifacts/S1/baseline/  │ MISSING — needs re-run                    │
+  └─────────────────────────────┴───────────────────────────────────────────┘
+
+  ---
+  What's Next
+
+  Phase 0 — Re-run S1 baseline (unblocked, 10 min)
+
+  S1/baseline artifacts were lost during the artifacts/ → tmp/artifacts/ path refactor. Before we can compare S1 results, we need them back.
+
+  Developer task:
+
+  ./scripts/run_scenario.sh S1 baseline
+
+
+  Expected: 8 files in tmp/artifacts/S1/baseline/.
+
+  No code changes needed. DoD = ls tmp/artifacts/S1/baseline/ | wc -l returns 8.
+
+  ---
+  Phase 1 — T10: Fault injection script for S4 (issue #11)
+
+  This is the most complex remaining task. run_scenario.sh already handles S4 deployment (via values-s4.yaml), but S4 requires active TCP fault
+  injection during the load test window.
+
+  What needs to be built: scripts/inject_s4.sh
+
+  #!/bin/bash
+  # Usage: ./scripts/inject_s4.sh <pod-name> [duration_seconds]
+  # Injects TCP reset on port 50051 inside the pod, waits, then removes it
+
+
+  Mechanism (inside the target A pod):
+  1. Primary: kubectl exec <pod> -n demo -- iptables -A OUTPUT -p tcp --dport 50051 -j REJECT --reject-with tcp-reset
+  2. Fallback: kubectl exec <pod> -n demo -- tc qdisc add dev eth0 root netem loss 100%
+  3. Sleep 15s
+  4. Remove the rule
+
+  S4 in run_scenario.sh needs a hook: after the fortio job starts (background), inject fault at t=0 into one A pod, remove at t=15s, fortio
+  continues to t=30s. Total window = fortio runs 30s, injection runs t=0..t=15s (or t=15s..t=30s per plan).
+
+  Re-reading the plan: inject at t=15s into the load test, remove at t=30s. So fortio runs 60s, injection is mid-run. This means run_scenario.sh
+  for S4 must:
+  1. Start fortio in background
+  2. Sleep 15s
+  3. Call inject_s4.sh <one-A-pod>
+  4. Sleep 15s
+  5. Remove injection
+  6. Wait for fortio to finish (remaining ~30s)
+
+  S4 also requires scaling A to 1 replica (single pod target per spec). The values-s4.yaml likely handles this — let me confirm:
+
+⏺ Read 2 files (ctrl+o to expand)        
+                             
+⏺ Good — A=2 is the invariant. S4 injects into one of the two A pods (not scaling down). The other A pod handles traffic normally during the      
+  injection window, which is why channel pool (CHANNEL_POOL_SIZE=4) helps with blast radius.
+                                                                                                                                                  
+  ---                                                       
+  Full Strategic Plan                                                                                                                             
+                                                                                                                                                  
+  Here's the complete remaining roadmap:
+
+  ---
+  Housekeeping (done now):
+  - ✅ Closed issue #10 (T05)
+  - ✅ Closed P2 milestone
+
+  ---
+  Remaining milestones:
+
+  P3 (2 open issues) — S4 capability
+
+  ┌──────┬───────┬─────────────────────────────────────────────────────────────────┬───────────┬─────────────────┐
+  │ Step │ Issue │                              Task                               │   Owner   │   Complexity    │
+  ├──────┼───────┼─────────────────────────────────────────────────────────────────┼───────────┼─────────────────┤
+  │ 0    │ —     │ Re-run S1 baseline (artifacts lost)                             │ Developer │ Low             │
+  ├──────┼───────┼─────────────────────────────────────────────────────────────────┼───────────┼─────────────────┤
+  │ 1    │ #11   │ T10 — scripts/inject_s4.sh + S4 hooks in run_scenario.sh        │ Developer │ High            │
+  ├──────┼───────┼─────────────────────────────────────────────────────────────────┼───────────┼─────────────────┤
+  │ 2    │ #12   │ T09C — Run S4 baseline + S4 resilient, collect 8 artifacts each │ Developer │ Low (after T10) │
+  └──────┴───────┴─────────────────────────────────────────────────────────────────┴───────────┴─────────────────┘
+
+  T10 design (Developer needs this):
+
+  Two deliverables:
+  1. scripts/inject_s4.sh <pod-name> — injects TCP reset, sleeps 15s, removes. Standalone-runnable for manual testing. Uses iptables primary, tc
+  netem fallback (tries iptables first, falls back if binary absent).
+  2. Modify run_scenario.sh S4 branch: run fortio in background, sleep 15s, call inject_s4.sh on first A pod, wait for injection to complete
+  (15s), wait for fortio to finish.
+
+  DoD for #11:
+  - inject_s4.sh runs and self-cleans
+  - kubectl logs <pod> | grep -i UNAVAILABLE shows errors in injection window
+  - run_scenario.sh S4 baseline completes and drops 8 files
+
+  DoD for #12:
+  - tmp/artifacts/S4/baseline/ — 8 files
+  - tmp/artifacts/S4/resilient/ — 8 files
+
+  ---
+  P4 (2 open issues) — Verification + Docs
+
+  ┌──────┬───────┬───────────────────────────────────────────────────┬───────────┬────────────┐
+  │ Step │ Issue │                       Task                        │   Owner   │ Complexity │
+  ├──────┼───────┼───────────────────────────────────────────────────┼───────────┼────────────┤
+  │ 3    │ #13   │ T11 — scripts/verify_s1.sh + scripts/verify_s4.sh │ Developer │ Medium     │
+  ├──────┼───────┼───────────────────────────────────────────────────┼───────────┼────────────┤
+  │ 4    │ #14   │ T12 — Docs packaging (PLAN alignment + runbook)   │ Developer │ Low        │
+  └──────┴───────┴───────────────────────────────────────────────────┴───────────┴────────────┘
+
+  T11 design: Each script reads the artifact files and asserts thresholds:
+  - verify_s1.sh: compare S1/baseline vs S1/resilient — expect P99 latency resilient < baseline, error rate < 5% for resilient
+  - verify_s4.sh: compare S4/baseline vs S4/resilient — expect connection error count lower, circuit breaker state transitions visible in logs
+
+  T12 design: Update docs/plan.md to reflect actual implementation (T04/T05/scenario runner), write a docs/runbook.md with the full run sequence.
+
+  ---
+  Execution order
+
+  Phase 0: Developer  →  run_scenario.sh S1 baseline  (unblocked)
+  Phase 1: Developer  →  T10 inject_s4.sh             (unblocked)
+  Phase 2: Developer  →  T09C S4 scenarios             (after T10)
+  Phase 3: Developer  →  T11 verify scripts            (after T09C, needs all artifacts)
+  Phase 4: Developer  →  T12 docs                      (after T11)
+
+
+  ---
+  Immediate action: Developer prompt for Phase 0 + T10
+
+  Should I generate the Developer prompt now? Phase 0 (S1 baseline re-run) can be done immediately. T10 is the critical path item — once that's
+  done, T09C, T11, and T12 follow in sequence.
