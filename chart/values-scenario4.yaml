@@ -1,0 +1,15 @@
+# Scenario 4 — +Keepalive+ChannelPool (+TCP reset fault injection)
+# Failure mode: iptables TCP reset injected at t=15s
+# Lesson: keepalive detects dead connections; channel pool distributes
+#         reconnection load; connection failure self-heals
+appA:
+  env:
+    - {name: RESILIENCE_ENABLED, value: "true"}
+    - {name: RETRY_ENABLED,      value: "true"}
+    - {name: DEADLINE_MS,        value: "800"}
+    - {name: MAX_INFLIGHT,       value: "10"}
+    - {name: CHANNEL_POOL_SIZE,  value: "4"}
+appB:
+  env:
+    - {name: B_DELAY_MS, value: "5"}
+    - {name: FAIL_RATE,  value: "0.3"}

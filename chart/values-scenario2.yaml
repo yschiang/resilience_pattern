@@ -1,0 +1,12 @@
+# Scenario 2 — +Retry+Idempotency
+# Failure mode: same FAIL_RATE=0.3
+# Lesson: gRPC retry absorbs ~90% of transient errors; also shows retry
+#         amplifies load under slow B (anti-pattern lesson follows in S3)
+appA:
+  env:
+    - {name: RESILIENCE_ENABLED, value: "false"}
+    - {name: RETRY_ENABLED,      value: "true"}
+appB:
+  env:
+    - {name: B_DELAY_MS, value: "5"}
+    - {name: FAIL_RATE,  value: "0.3"}

@@ -1,3 +1,4 @@
+# DEPRECATED: Use values-scenario1.yaml + values-scenario3.yaml instead
 # Scenario S1: Overload scenario
 # Tests behavior when B is overloaded with high QPS
 
