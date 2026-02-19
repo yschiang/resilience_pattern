@@ -1,3 +1,4 @@
+# DEPRECATED: Use values-scenario3.yaml or values-scenario4.yaml instead
 # Resilient configuration (P0 patterns enabled)
 # Used for resilient measurements in S1 and S4 scenarios
 

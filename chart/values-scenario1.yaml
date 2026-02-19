@@ -1,0 +1,11 @@
+# Scenario 1 — Baseline: no resilience, no retry
+# Failure mode: FAIL_RATE=0.3 (30% RESOURCE_EXHAUSTED)
+# Lesson: raw failure propagates end-to-end
+appA:
+  env:
+    - {name: RESILIENCE_ENABLED, value: "false"}
+    - {name: RETRY_ENABLED,      value: "false"}
+appB:
+  env:
+    - {name: B_DELAY_MS, value: "5"}
+    - {name: FAIL_RATE,  value: "0.3"}

@@ -1,3 +1,4 @@
+# DEPRECATED: Use values-scenario4.yaml instead
 # Scenario S4: Connection reset scenario
 # Tests behavior when gRPC connection to B is abruptly reset
 
