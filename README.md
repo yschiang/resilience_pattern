@@ -1,20 +1,55 @@
 # Resilience Pattern Demo
 
-Demonstrates how five resilience patterns prevent a slow or broken downstream
-from collapsing an upstream Spring Boot service. Includes reproducible
-before/after measurements using Kubernetes, gRPC, and Fortio load testing.
+A progressive learning roadmap for five gRPC resilience patterns. Each of four
+scenarios adds one group of patterns and one new failure mode — run them in
+order to watch each pattern's contribution in isolation.
 
 ---
 
-## The Problem
+## The Four Scenarios
 
-Without protection, one slow downstream causes a **cascading failure**:
+| # | Name | Patterns added | Failure mode | Key lesson |
+|---|---|---|---|---|
+| 1 | Baseline | none | FAIL_RATE=0.3 | Raw failure propagates |
+| 2 | +Retry+Idempotency | gRPC retry, dedup in B | same | Retryable errors drop 30% → 3% |
+| 3 | +Deadline+Bulkhead+CB | deadline, semaphore, Resilience4j CB | + B_DELAY_MS=200 (slow B) | Overload cascade severed |
+| 4 | +Keepalive+ChannelPool | keepalive, channel pool | + iptables tcp-reset | Connection failure self-heals |
 
-1. Downstream slows down → upstream threads pile up waiting
-2. Thread pool exhausts → upstream stops serving all clients
-3. One bad dependency takes the whole service down
+## Coverage Matrix
 
-The patterns below each cut this chain at a different point.
+| Failure mode | Scenario 1 | Scenario 2 | Scenario 3 | Scenario 4 |
+|---|---|---|---|---|
+| RESOURCE_EXHAUSTED (30%) | ❌ | ✅ | ✅ | ✅ |
+| Slow B / overload | ❌ | ❌ worse | ✅ | ✅ |
+| TCP connection reset | ❌ | ❌ | ❌ slow | ✅ |
+
+Scenario 2 deliberately makes overload *worse* before Scenario 3 fixes it —
+the most important anti-pattern lesson: **retry amplifies load without a
+circuit breaker**.
+
+---
+
+## Quick Start
+
+```bash
+# Build and load images
+./scripts/build-images.sh
+./scripts/load-images-kind.sh
+
+# Run scenarios in order
+./scripts/run_scenario.sh 1   # baseline — raw failure
+./scripts/run_scenario.sh 2   # +retry+idempotency
+./scripts/run_scenario.sh 3   # +deadline+bulkhead+CB (slow B)
+./scripts/run_scenario.sh 4   # +keepalive+pool (+TCP reset at t=15s)
+
+# Verify
+./tests/verify_scenario2.sh   # PASS=3 FAIL=0
+./tests/verify_scenario3.sh   # PASS=2 FAIL=0
+./tests/verify_scenario4.sh   # PASS=3 FAIL=0
+```
+
+Each run deploys via Helm, runs a 60 s Fortio load test, and saves 8 artifacts
+to `tmp/artifacts/scenario<N>/`.
 
 ---
 
@@ -32,163 +67,137 @@ App B  ×3 pods  (Go, single-threaded)
 
 App B is intentionally single-threaded — ~5 RPS per pod, 15 RPS total
 capacity. At 200 QPS the mismatch is 13×, making saturation and connection
-failures easy to demonstrate.
+failures easy to reproduce.
 
 ---
 
-## Resilience Techniques
+## Pattern Inventory
 
-### P0 — Stop the Bleeding
+| Pattern | Added in | File | Mechanism |
+|---|---|---|---|
+| gRPC retry | Scenario 2 | `RetryBClient.java`, `ResilientBClient.java` | gRPC service config: maxAttempts=3, retryable on `RESOURCE_EXHAUSTED` |
+| Idempotency dedup | Scenario 2 | `app-b/main.go` | `seenRequests sync.Map` keyed on `req.Id`, 30 s TTL |
+| Deadline | Scenario 3 | `ResilientBClient.java` | `withDeadlineAfter(800ms)` |
+| Bulkhead | Scenario 3 | `ResilientBClient.java` | `Semaphore.tryAcquire(MAX_INFLIGHT=10)` |
+| Circuit Breaker | Scenario 3 | `ResilientBClient.java` | Resilience4j `COUNT_BASED(10)`, 50% threshold |
+| gRPC Keepalive | Scenario 4 | `ResilientBClient.java` | HTTP/2 PING every 30 s, 10 s timeout |
+| Channel Pool | Scenario 4 | `ResilientBClient.java` | N `ManagedChannel` instances, round-robin `AtomicInteger` |
 
-**1. Deadline** — every gRPC call gets `withDeadlineAfter(800ms)`. Without
-it, a slow B holds threads indefinitely. With it, the thread is freed at
-exactly 800 ms and returns `DEADLINE_EXCEEDED`. S1 baseline: max latency 4 s.
-S1 resilient: max latency ~1 s.
+---
 
-**2. Bulkhead** — `Semaphore.tryAcquire()` with `MAX_INFLIGHT=10`.
-Non-blocking: if 10 calls are already in-flight, the 11th returns `QUEUE_FULL`
-in microseconds. Prevents thread exhaustion even within the deadline window.
-S1 resilient: 854 `QUEUE_FULL` across 2 pods.
+## Failure Injection → Expected Results
 
-**3. Circuit Breaker** — Resilience4j state machine
-(`CLOSED → OPEN → HALF_OPEN`). After ≥5 failures in 10 calls, trips OPEN.
-All subsequent calls return `CIRCUIT_OPEN` without touching the network.
-Recovers with 3 probe calls after 5 s. S1 resilient: 10,993 `CIRCUIT_OPEN` —
-once tripped, nearly all load was shed immediately. Order matters: CB is
-checked before the bulkhead — `CIRCUIT_OPEN` is cheaper than `QUEUE_FULL`.
+| Scenario | Failure injected | Expected observation |
+|---|---|---|
+| S1 | `FAIL_RATE=0.3` — B injects `RESOURCE_EXHAUSTED` randomly | ~30% `RATE_LIMITED`; all propagate to caller |
+| S2 | Same `FAIL_RATE=0.3` | `RATE_LIMITED` drops ~10×; retry amplifies load when B is slow (hidden cost) |
+| S3 | `FAIL_RATE=0.3` + `B_DELAY_MS=200` (slow B) | `QUEUE_FULL` + `CIRCUIT_OPEN` > 100; max latency lower than S1 |
+| S4 | `FAIL_RATE=0.3` + iptables tcp-reset at t=15 s | `UNAVAILABLE` > 50 (fault visible); `SUCCESS` > 10,000; `UNAVAILABLE` < 10% of `SUCCESS` (self-heal) |
 
-### P1 — Self-Heal
+---
 
-**4. gRPC Keepalive** — sends HTTP/2 PING frames every 30 s on idle
-connections (`keepAliveWithoutCalls=true`). If no PONG within 10 s, declares
-the connection dead and reconnects. **One unanswered PING is enough** — there
-is no retry before acting. Without it, a broken TCP connection can sit
-undetected for minutes: the OS-level TCP keepalive retries 9 probes at 75 s
-intervals before giving up, whereas gRPC's application-level PING acts on the
-first failure. S4 resilient: `UNAVAILABLE` drops from 1,797 to 21 (−99%).
+## Per-Scenario Detail
 
-**5. Channel Pool** — N `ManagedChannel` instances, round-robined via
-`AtomicInteger`. With pool=1, one TCP reset kills all in-flight RPCs
-simultaneously (correlated burst). With pool=4, only ~¼ of in-flights are
-affected — smaller burst, faster recovery. Also improves load distribution:
-a single channel is sticky to 1 of 3 B pods; pool=4 reaches all three.
+### Scenario 1 — Baseline
 
-### Error Taxonomy (cross-cutting)
+No patterns. `BClient` makes a plain gRPC call. B injects `RESOURCE_EXHAUSTED`
+30% of the time. Every failure is visible to the caller.
 
-Every failure returns a named code — `DEADLINE_EXCEEDED`, `UNAVAILABLE`,
-`QUEUE_FULL`, `CIRCUIT_OPEN`. This is what makes S1 vs S4 legible: S1
-resilient shows `QUEUE_FULL`/`CIRCUIT_OPEN` (the system protecting itself),
-S4 resilient shows a small `UNAVAILABLE` spike then silence (connection reset
-+ self-heal). Without named codes, all you see is "error rate went up."
+**What you observe:** ~30% error rate sustained for the full 60 s.
 
-### What's Deliberately Absent
+---
 
-- **No retry** — retries on a slow or broken downstream amplify load; CB +
-  keepalive achieve recovery without it.
-- **No fallback** — deliberately omitted to keep error codes visible in the
-  demo. In production, `CIRCUIT_OPEN`/`QUEUE_FULL` could return a cached or
-  degraded response.
+### Scenario 2 — +Retry + Idempotency
 
-### Quick Reference
+**gRPC retry policy** (`RetryBClient`): maxAttempts=3, retryable on
+`RESOURCE_EXHAUSTED`. Each failed call is silently retried up to 2 more times
+before surfacing an error. Expected visible error rate drops from ~30% to ~3%.
 
-| # | Pattern | Mechanism | Rejects with | Defends against |
-|---|---|---|---|---|
-| 1 | Deadline | `withDeadlineAfter(800ms)` | `DEADLINE_EXCEEDED` | Slow downstream |
-| 2 | Bulkhead | `Semaphore.tryAcquire()` | `QUEUE_FULL` | Thread exhaustion |
-| 3 | Circuit Breaker | Resilience4j COUNT_BASED(10), threshold 50% | `CIRCUIT_OPEN` | Repeated failures |
-| 4 | Keepalive | HTTP/2 PING every 30 s | — (auto-reconnects) | Dead TCP connection |
-| 5 | Channel Pool | Round-robin `AtomicInteger` over N channels | — (reduces blast radius) | Correlated burst |
+**Idempotency dedup** (app-b): `seenRequests sync.Map` keyed on `req.Id` with
+30s TTL. A retried request with the same ID gets the cached reply — B does no
+duplicate work.
+
+**The anti-pattern hidden here:** when B is slow (Scenario 3's condition),
+retry amplifies load up to 3×. Without a circuit breaker, this accelerates
+saturation rather than relieving it.
+
+**What you observe:** RATE_LIMITED errors drop ~10×. Under fast B this looks
+like a win — Scenario 3 reveals the cost.
+
+---
+
+### Scenario 3 — +Deadline + Bulkhead + Circuit Breaker
+
+`ResilientBClient` activates with the full protection stack, plus retry.
+B_DELAY_MS=200 triggers overload. Three patterns work in concert:
+
+**Deadline** — `withDeadlineAfter(800ms)`. Frees the calling thread at 800 ms
+instead of waiting indefinitely. Returns `DEADLINE_EXCEEDED`.
+
+**Bulkhead** — `Semaphore.tryAcquire(MAX_INFLIGHT=10)`. Non-blocking: if 10
+calls are already in-flight the 11th returns `QUEUE_FULL` in microseconds.
+Prevents thread exhaustion within the deadline window.
+
+**Circuit Breaker** — Resilience4j `COUNT_BASED(10)`, 50% failure threshold.
+After ≥5 failures in 10 calls, trips OPEN. All calls return `CIRCUIT_OPEN`
+without touching the network. Recovers with 3 probe calls after 5 s. Check
+order: CB before bulkhead (cheaper first).
+
+**What you observe:** max latency drops vs Scenario 1, QUEUE_FULL +
+CIRCUIT_OPEN > 100 (fail-fast patterns firing, protecting the system).
+
+---
+
+### Scenario 4 — +Keepalive + Channel Pool
+
+`ResilientBClient` with `CHANNEL_POOL_SIZE=4`. B is fast (5 ms). At t=15s,
+`inject_s4.sh` resets all TCP connections on port 50051 inside one A pod.
+
+**gRPC Keepalive** — HTTP/2 PING every 30 s (`keepAliveWithoutCalls=true`),
+10 s timeout. One unanswered PING declares the connection dead and triggers
+reconnect. Far faster than OS-level TCP keepalive (9 probes × 75 s).
+
+**Channel Pool** — N `ManagedChannel` instances, round-robined via
+`AtomicInteger`. With pool=4, a TCP reset affects only ~¼ of in-flight RPCs
+instead of all of them. Smaller burst, faster recovery, better load
+distribution across B pods.
+
+**What you observe:** UNAVAILABLE > 50 (fault visible), SUCCESS > 10,000
+(majority of traffic unaffected), UNAVAILABLE < 10% of SUCCESS
+(self-heal confirmed).
+
+---
+
+## Error Taxonomy
+
+| Code | Source | Meaning |
+|---|---|---|
+| `RATE_LIMITED` | app-b FAIL_RATE | B injected RESOURCE_EXHAUSTED (retryable) |
+| `DEADLINE_EXCEEDED` | deadline | Call timed out at 800 ms |
+| `QUEUE_FULL` | bulkhead | Semaphore full, rejected without network attempt |
+| `CIRCUIT_OPEN` | circuit breaker | Breaker open, rejected without network attempt |
+| `UNAVAILABLE` | keepalive / TCP | Connection dead or reset |
 
 **Check order (cheapest first):**
 ```
-Circuit Breaker  →  CIRCUIT_OPEN   (no lock, no network)
-Bulkhead         →  QUEUE_FULL     (semaphore CAS)
-gRPC + deadline  →  SUCCESS / DEADLINE_EXCEEDED / UNAVAILABLE
+Circuit Breaker  →  CIRCUIT_OPEN        (no lock, no network)
+Bulkhead         →  QUEUE_FULL          (semaphore CAS)
+gRPC + deadline  →  SUCCESS / DEADLINE_EXCEEDED / UNAVAILABLE / RATE_LIMITED
 ```
-
-**Error taxonomy:**
-
-| Code | Meaning | Primary scenario |
-|---|---|---|
-| `DEADLINE_EXCEEDED` | Call timed out at deadline | S1 |
-| `UNAVAILABLE` | Connection reset or broken | S4 |
-| `QUEUE_FULL` | Bulkhead rejected | S1 resilient |
-| `CIRCUIT_OPEN` | Breaker open, no network attempt | S1 resilient |
-| `UNKNOWN` | Unexpected error | — |
 
 ---
 
-## Scenarios
+## Configuration
 
-### S1 — Queueing Collapse (slow downstream)
-
-B delay = 200 ms, load = 200 QPS × c80 × 60 s.
-
-| Metric | Baseline | Resilient |
-|---|---|---|
-| Max latency | 4.0 s | 1.0 s |
-| QUEUE_FULL | 0 | 854 |
-| CIRCUIT_OPEN | 0 | 10,993 |
-
-Baseline: threads pile up → max latency reaches 4 s as calls queue behind
-each other. Resilient: bulkhead fills at 10 in-flight → QUEUE_FULL sheds
-excess; circuit breaker opens → 10,993 calls rejected in microseconds.
-
-### S4 — Connection Reset (iptables tcp-reset)
-
-B delay = 5 ms (no saturation). One A pod has iptables inject a TCP reset
-on port 50051 at t=15 s for 15 s. Load = 200 QPS × c50 × 60 s.
-
-| Metric | Baseline | Resilient |
-|---|---|---|
-| UNAVAILABLE | 1,797 | 21 |
-| Reduction | — | −99% |
-
-Baseline: every RPC on the dead connection fails and the connection stays
-broken for the rest of the test. Resilient: initial burst of ~21 failures,
-then keepalive detects the dead connection, gRPC reconnects, and traffic
-resumes normally.
-
----
-
-## Quick Start
-
-### Prerequisites
-
-```bash
-# Required tools
-docker  kubectl  helm  kind
-```
-
-### Build and load images
-
-```bash
-./scripts/build-images.sh
-./scripts/load-images-kind.sh
-```
-
-### Run scenarios
-
-```bash
-./scripts/run_scenario.sh S1 baseline    # slow backend, no resilience
-./scripts/run_scenario.sh S1 resilient   # slow backend, with protection
-./scripts/run_scenario.sh S4 baseline    # connection reset, no resilience
-./scripts/run_scenario.sh S4 resilient   # connection reset, with self-heal
-```
-
-Each run deploys via Helm, runs a 60 s Fortio load test, and saves 8
-artifacts to `tmp/artifacts/<SCENARIO>/<MODE>/`:
-- `fortio.txt` — load test summary
-- `app-a-<pod>.prom` — A metrics (latency, errors, inflight, breaker state)
-- `app-a-<pod>.log` — A logs
-- `app-b-<pod>.metrics` — B busy ratio and request count
-
-### Verify results
-
-```bash
-./tests/verify_s1.sh   # exits 0 = PASS
-./tests/verify_s4.sh   # exits 0 = PASS
-```
+| Env var | Default | Purpose | Active from |
+|---|---|---|---|
+| `RESILIENCE_ENABLED` | false | Activates ResilientBClient | Scenario 3 |
+| `RETRY_ENABLED` | false | Activates RetryBClient | Scenario 2 |
+| `FAIL_RATE` | 0.0 | B-side failure injection rate | Scenario 1 |
+| `B_DELAY_MS` | 5 | B response delay (ms) | Scenario 3 (200ms) |
+| `DEADLINE_MS` | 800 | Per-call gRPC deadline | Scenario 3 |
+| `MAX_INFLIGHT` | 10 | Bulkhead semaphore size | Scenario 3 |
+| `CHANNEL_POOL_SIZE` | 1 | gRPC channel pool size | Scenario 4 (4) |
 
 ---
 
@@ -197,44 +206,22 @@ artifacts to `tmp/artifacts/<SCENARIO>/<MODE>/`:
 ```
 .
 ├── apps/
-│   ├── app-a/              # Spring Boot REST API + resilience patterns
-│   └── app-b/              # Go gRPC service (single-threaded)
-├── chart/                  # Helm chart + values overlays
-│   ├── values-common.yaml  # A=2, B=3 (immutable)
-│   ├── values-baseline.yaml
-│   ├── values-resilient.yaml
-│   ├── values-s1.yaml
-│   └── values-s4.yaml
+│   ├── app-a/              # Spring Boot: REST → gRPC, resilience patterns
+│   └── app-b/              # Go gRPC: single-threaded, FAIL_RATE, idempotency
+├── chart/
+│   ├── values-common.yaml        # A=2, B=3 (immutable)
+│   ├── values-scenario{1,2,3,4}.yaml  # P5 learning roadmap (use these)
+│   └── values-{baseline,resilient,s1,s4}.yaml  # deprecated
 ├── scripts/
-│   ├── run_scenario.sh     # One-command scenario runner
-│   └── inject_s4.sh        # iptables fault injection (tc netem fallback)
+│   ├── run_scenario.sh     # ./run_scenario.sh <1|2|3|4>
+│   └── inject_s4.sh        # iptables TCP reset (used by scenario 4)
 ├── tests/
-│   ├── verify_s1.sh        # S1 pass/fail assertions
-│   └── verify_s4.sh        # S4 pass/fail assertions
-├── docs/
-│   ├── plan.md             # SSOT: full design and acceptance criteria
-│   └── runbook.md          # Step-by-step demo guide
-└── tmp/
-    └── artifacts/          # Scenario outputs (gitignored)
+│   ├── verify_scenario{2,3,4}.sh  # P5 assertions (use these)
+│   └── verify_s{1,4}.sh           # deprecated
+└── docs/
+    ├── plan.md             # P0–P4 design history
+    ├── plan2.md            # P5 learning roadmap design
+    └── runbook.md          # Step-by-step demo guide
 ```
 
----
-
-## Configuration
-
-Switch between baseline and resilient by Helm values overlay only — no code changes.
-
-| `RESILIENCE_ENABLED` | Active bean | Patterns |
-|---|---|---|
-| `false` (default) | `BClient` | none |
-| `true` | `ResilientBClient` | all P0+P1 |
-
-Key tuning knobs (set via env vars in `values-resilient.yaml`):
-
-| Env var | Default | Purpose |
-|---|---|---|
-| `DEADLINE_MS` | 800 | Per-call gRPC deadline |
-| `MAX_INFLIGHT` | 10 | Bulkhead semaphore size |
-| `CHANNEL_POOL_SIZE` | 4 | gRPC channel pool |
-
-See `docs/plan.md` for full design rationale.
+See `docs/plan2.md` for full roadmap design rationale.

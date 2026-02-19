@@ -29,13 +29,13 @@ kind load docker-image app-b:dev
 Run all four scenarios in order. Each takes ~2 minutes.
 
 ```bash
-./scripts/run_scenario.sh S1 baseline
-./scripts/run_scenario.sh S1 resilient
-./scripts/run_scenario.sh S4 baseline
-./scripts/run_scenario.sh S4 resilient
+./scripts/run_scenario.sh 1   # baseline — raw failure propagates
+./scripts/run_scenario.sh 2   # +retry+idempotency
+./scripts/run_scenario.sh 3   # +deadline+bulkhead+CB (slow B, C=80)
+./scripts/run_scenario.sh 4   # +keepalive+pool (+TCP reset at t=15s)
 ```
 
-Artifacts are saved to `tmp/artifacts/<scenario>/<mode>/`. Each run produces 8 files:
+Artifacts are saved to `tmp/artifacts/scenario<N>/`. Each run produces 8 files:
 - `app-a-<pod>.prom` × 2 — Prometheus metrics from each A pod
 - `app-a-<pod>.log`  × 2 — Application logs from each A pod
 - `app-b-<pod>.metrics` × 3 — Go metrics from each B pod
@@ -70,27 +70,32 @@ One A pod has its gRPC connection to B reset for 15s mid-load.
 
 ## Verify Commands
 
-After running all four scenarios:
+After running scenarios, verify assertions:
 
 ```bash
-./tests/verify_s1.sh
+./tests/verify_scenario2.sh
+# Expected: PASS=3 FAIL=0, exit 0
+
+./tests/verify_scenario3.sh
 # Expected: PASS=2 FAIL=0, exit 0
 
-./tests/verify_s4.sh
+./tests/verify_scenario4.sh
 # Expected: PASS=3 FAIL=0, exit 0
 ```
 
 Manual spot-checks:
 ```bash
-# S1: confirm baseline max latency
-grep '^a_downstream_latency_ms_seconds_max' tmp/artifacts/S1/baseline/app-a-*.prom
+# Scenario 1: confirm RATE_LIMITED errors propagate
+grep 'RATE_LIMITED' tmp/artifacts/scenario1/app-a-*.prom
 
-# S1: confirm resilient fast-fail fired
-grep -E 'QUEUE_FULL|CIRCUIT_OPEN' tmp/artifacts/S1/resilient/app-a-*.prom
+# Scenario 2: confirm retry absorbed failures
+grep 'RATE_LIMITED' tmp/artifacts/scenario2/app-a-*.prom
 
-# S4: confirm UNAVAILABLE counts
-grep 'UNAVAILABLE' tmp/artifacts/S4/baseline/app-a-*.prom
-grep 'UNAVAILABLE' tmp/artifacts/S4/resilient/app-a-*.prom
+# Scenario 3: confirm fail-fast patterns fired
+grep -E 'QUEUE_FULL|CIRCUIT_OPEN' tmp/artifacts/scenario3/app-a-*.prom
+
+# Scenario 4: confirm UNAVAILABLE then self-heal
+grep 'UNAVAILABLE' tmp/artifacts/scenario4/app-a-*.prom
 ```
 
 ---
@@ -100,12 +105,12 @@ grep 'UNAVAILABLE' tmp/artifacts/S4/resilient/app-a-*.prom
 | File | Purpose |
 |---|---|
 | `chart/values-common.yaml` | A=2 pods, B=3 pods (immutable) |
-| `chart/values-baseline.yaml` | `RESILIENCE_ENABLED=false` |
-| `chart/values-resilient.yaml` | `RESILIENCE_ENABLED=true`, `DEADLINE_MS=800`, `MAX_INFLIGHT=10`, `CHANNEL_POOL_SIZE=4` |
-| `chart/values-s1.yaml` | `B_DELAY_MS=200` |
-| `chart/values-s4.yaml` | `B_DELAY_MS=5` (normal delay; fault injected by script) |
+| `chart/values-scenario1.yaml` | Baseline: no resilience, no retry, FAIL_RATE=0.3 |
+| `chart/values-scenario2.yaml` | +Retry+Idempotency: RETRY_ENABLED=true |
+| `chart/values-scenario3.yaml` | +Deadline+Bulkhead+CB: RESILIENCE_ENABLED=true, B_DELAY_MS=200 |
+| `chart/values-scenario4.yaml` | +Keepalive+Pool: CHANNEL_POOL_SIZE=4 |
 
-The scenario runner composes: `values-common` + `values-<mode>` + `values-<scenario>`.
+The scenario runner composes: `values-common.yaml` + `values-scenario<N>.yaml`.
 
 ---
 
@@ -133,11 +138,11 @@ The app-a image must include `iptables` and `iproute2`. The Dockerfile installs 
 **Namespace missing**
 `run_scenario.sh` creates the `demo` namespace automatically via `kubectl apply --dry-run`. No manual action needed.
 
-**verify_s1.sh / verify_s4.sh: missing artifact directory**
+**verify_scenario*.sh: missing artifact directory**
 Run the corresponding scenario first:
 ```bash
-./scripts/run_scenario.sh S1 baseline   # required for verify_s1.sh
-./scripts/run_scenario.sh S1 resilient  # required for verify_s1.sh
-./scripts/run_scenario.sh S4 baseline   # required for verify_s4.sh
-./scripts/run_scenario.sh S4 resilient  # required for verify_s4.sh
+./scripts/run_scenario.sh 1   # required for verify_scenario2.sh and verify_scenario3.sh
+./scripts/run_scenario.sh 2   # required for verify_scenario2.sh
+./scripts/run_scenario.sh 3   # required for verify_scenario3.sh
+./scripts/run_scenario.sh 4   # required for verify_scenario4.sh
 ```
