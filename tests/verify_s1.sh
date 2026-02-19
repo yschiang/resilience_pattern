@@ -1,4 +1,6 @@
 #!/bin/bash
+# DEPRECATED: Use tests/verify_scenario3.sh instead (P5 learning roadmap)
+# This script references old artifact paths (tmp/artifacts/S1/baseline|resilient)
 # verify_s1.sh — Assert S1 resilient improves over baseline
 # Parses tmp/artifacts/S1/{baseline,resilient}/app-a-*.prom
 # Exit 0 = all assertions PASS, exit 1 = any FAIL
