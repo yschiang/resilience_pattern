@@ -18,8 +18,8 @@ import javax.annotation.PreDestroy;
 
 @Component
 @ConditionalOnExpression("'${resilience.enabled:false}' == 'false' && '${retry.enabled:false}' == 'false'")
-public class BClient implements BClientPort {
-    private static final Logger logger = LoggerFactory.getLogger(BClient.class);
+public class AppA implements AppAPort {
+    private static final Logger logger = LoggerFactory.getLogger(AppA.class);
 
     @Value("${b.service.url}")
     private String bServiceUrl;

@@ -116,7 +116,7 @@ Fixes #21
 ```
 
 ```bash
-refactor: rename BClient → AppA to clarify dual role
+refactor: rename AppA classes to clarify dual HTTP/gRPC role
 
 Fixes #32
 ```
