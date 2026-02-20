@@ -104,7 +104,7 @@ active per deployment.
 
 | Script | Compares | Assertions |
 |---|---|---|
-| verify_scenario2.sh | S1 vs S2 | C08: S1 RATE_LIMITED>1000; C09: S2 RATE_LIMITED<100; C10: directional |
+| verify_scenario2.sh | S1 vs S2 | C08: S1 BACKEND_ERROR>1000; C09: S2 BACKEND_ERROR<100; C10: directional |
 | verify_scenario3.sh | S1 vs S3 | C01: S1 max-latency > S3 max-latency; C02: S3 QUEUE_FULL+CIRCUIT_OPEN>100 |
 | verify_scenario4.sh | S4 only | C05: UNAVAILABLE>50; C06: SUCCESS>10000; C07: UNAVAILABLE < 10% of SUCCESS |
 
@@ -123,7 +123,7 @@ active per deployment.
 
 ```
 T13 (app-b: FAIL_RATE + dedup)
-  └─ T14 (app-a: RATE_LIMITED + RetryAppA + retry in Resilient)
+  └─ T14 (app-a: BACKEND_ERROR + RetryAppA + retry in Resilient)
        └─ T15 (chart: values-scenario{1,2,3,4}.yaml)
             └─ T16 (run_scenario.sh rewrite)
                  └─ T17 (verify_scenario{2,3,4}.sh)

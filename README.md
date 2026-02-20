@@ -89,8 +89,8 @@ to `tmp/artifacts/scenario<N>/`.
 
 | Scenario | Failure injected | Expected observation |
 |---|---|---|
-| S1 | `FAIL_RATE=0.3` — B injects `RESOURCE_EXHAUSTED` randomly | ~30% `RATE_LIMITED`; all propagate to caller |
-| S2 | Same `FAIL_RATE=0.3` | `RATE_LIMITED` drops ~10×; retry amplifies load when B is slow (hidden cost) |
+| S1 | `FAIL_RATE=0.3` — B injects `RESOURCE_EXHAUSTED` randomly | ~30% `BACKEND_ERROR`; all propagate to caller |
+| S2 | Same `FAIL_RATE=0.3` | `BACKEND_ERROR` drops ~10×; retry amplifies load when B is slow (hidden cost) |
 | S3 | `FAIL_RATE=0.3` + `B_DELAY_MS=200` (slow B) | `QUEUE_FULL` + `CIRCUIT_OPEN` > 100; max latency lower than S1 |
 | S4 | `FAIL_RATE=0.3` + iptables tcp-reset at t=15 s | `UNAVAILABLE` > 50 (fault visible); `SUCCESS` > 10,000; `UNAVAILABLE` < 10% of `SUCCESS` (self-heal) |
 
@@ -110,7 +110,7 @@ app-a: AppA (plain gRPC)
   ↓ WorkRequest{id=uuid}
 app-b: 30% RESOURCE_EXHAUSTED, 70% SUCCESS (5 ms)
   ↓ error propagates unchanged
-HTTP client: sees 30% RATE_LIMITED
+HTTP client: sees 30% BACKEND_ERROR
 ```
 
 **Configuration:**
@@ -124,7 +124,7 @@ HTTP client: sees 30% RATE_LIMITED
 - **Overload: 13×** (200/15)
 
 **What you observe:**
-- `RATE_LIMITED` errors: ~3,600 (30% of 12,000)
+- `BACKEND_ERROR` errors: ~3,600 (30% of 12,000)
 - No retry, no dedup — every failure visible
 - Latency: p50 ~5 ms, p99 ~50 ms (queue backlog)
 
@@ -146,7 +146,7 @@ app-a: RetryAppA (maxAttempts=3)
   ↓ 100 ms backoff
   ↓ attempt 3 (same id) → app-b checks cache → HIT (no work)
   ↓
-HTTP client: sees 3% RATE_LIMITED (down from 30%)
+HTTP client: sees 3% BACKEND_ERROR (down from 30%)
 ```
 
 **Configuration:**
@@ -183,7 +183,7 @@ HTTP client (200 QPS)
 **The anti-pattern hidden here:** Under fast B (5 ms), retry looks like pure win. But when B is slow (Scenario 3's 200 ms), retry amplifies load up to 3× and accelerates saturation. Without a circuit breaker to shed excess load, the system gets worse, not better.
 
 **What you observe:**
-- `RATE_LIMITED` visible errors: ~300 (down from 3,600)
+- `BACKEND_ERROR` visible errors: ~300 (down from 3,600)
 - `b_requests_total` at B: ~15,600 (up from 12,000) — dedup prevents duplicate work, but retry still amplifies network load
 
 ---
@@ -254,7 +254,7 @@ HTTP request arrives
 ```
 
 **Timeline (typical 60 s run):**
-- **t=0-2s**: CB CLOSED, some requests succeed, many fail (RATE_LIMITED + slow B)
+- **t=0-2s**: CB CLOSED, some requests succeed, many fail (BACKEND_ERROR + slow B)
 - **t=2s**: CB trips OPEN (50% failure rate reached in sliding window of 10 calls)
 - **t=2-7s**: Most requests return CIRCUIT_OPEN instantly, bulkhead rarely fills
 - **t=7s**: CB enters HALF_OPEN, allows 3 probe calls
@@ -270,7 +270,7 @@ HTTP request arrives
 - `CIRCUIT_OPEN`: >10,000 (CB shedding majority of load)
 - `QUEUE_FULL`: >800 (bulkhead rejecting excess even when CB closed)
 - `DEADLINE_EXCEEDED`: ~500 (slow B responses that exceeded 800 ms)
-- `RATE_LIMITED`: ~100 (B's 30% fail rate, but only on requests that get through)
+- `BACKEND_ERROR`: ~100 (B's 30% fail rate, but only on requests that get through)
 - `a_downstream_latency_ms_seconds_max`: ~1 s (vs 4 s in S1) — deadline enforced
 - `a_breaker_state`: oscillates 0 (CLOSED) → 2 (OPEN) → 1 (HALF_OPEN)
 
@@ -376,7 +376,7 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 
 | Code | Returned by | When | Location |
 |---|---|---|---|
-| `RATE_LIMITED` | **app-b** | Random 30% of requests (FAIL_RATE injection) | `main.go:55` → gRPC `RESOURCE_EXHAUSTED` → mapped in `ErrorCode.java:34` |
+| `BACKEND_ERROR` | **app-b** | Random 30% of requests (FAIL_RATE injection) | `main.go:55` → gRPC `RESOURCE_EXHAUSTED` → mapped in `ErrorCode.java:34` |
 | `DEADLINE_EXCEEDED` | **gRPC client** | Call exceeds 800 ms deadline | grpc-java runtime → caught in `ResilientAppA.java:161` |
 | `QUEUE_FULL` | **app-a bulkhead** | Semaphore full (>10 inflight) | `ResilientAppA.java:136` (tryAcquire fails) |
 | `CIRCUIT_OPEN` | **app-a circuit breaker** | Breaker state = OPEN | `ResilientAppA.java:129` (Resilience4j) |
@@ -386,7 +386,7 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 ```
 Circuit Breaker  →  CIRCUIT_OPEN        (no lock, no network)
 Bulkhead         →  QUEUE_FULL          (semaphore CAS)
-gRPC + deadline  →  SUCCESS / DEADLINE_EXCEEDED / UNAVAILABLE / RATE_LIMITED
+gRPC + deadline  →  SUCCESS / DEADLINE_EXCEEDED / UNAVAILABLE / BACKEND_ERROR
 ```
 
 ---
