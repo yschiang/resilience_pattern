@@ -1,5 +1,5 @@
 package com.demo.appa;
 
-public interface BClientPort {
+public interface AppAPort {
     WorkResult callWork(String requestId);
 }

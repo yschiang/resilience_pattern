@@ -58,13 +58,13 @@ not free; it must be paired with a circuit breaker.**
 
 | Pattern | Added in | File | Mechanism |
 |---|---|---|---|
-| gRPC retry | Scenario 2 | RetryBClient.java, ResilientBClient.java | gRPC service config: maxAttempts=3, RESOURCE_EXHAUSTED |
+| gRPC retry | Scenario 2 | RetryAppA.java, ResilientAppA.java | gRPC service config: maxAttempts=3, RESOURCE_EXHAUSTED |
 | Idempotency dedup | Scenario 2 | app-b/main.go | seenRequests sync.Map keyed on req.Id, 30s TTL |
-| Deadline | Scenario 3 | ResilientBClient.java | withDeadlineAfter(800ms) |
-| Bulkhead | Scenario 3 | ResilientBClient.java | Semaphore.tryAcquire(MAX_INFLIGHT) |
-| Circuit Breaker | Scenario 3 | ResilientBClient.java | Resilience4j COUNT_BASED(10), 50% threshold |
-| gRPC Keepalive | Scenario 4 | ResilientBClient.java | HTTP/2 PING every 30s, 10s timeout |
-| Channel Pool | Scenario 4 | ResilientBClient.java | N ManagedChannels, round-robin AtomicInteger |
+| Deadline | Scenario 3 | ResilientAppA.java | withDeadlineAfter(800ms) |
+| Bulkhead | Scenario 3 | ResilientAppA.java | Semaphore.tryAcquire(MAX_INFLIGHT) |
+| Circuit Breaker | Scenario 3 | ResilientAppA.java | Resilience4j COUNT_BASED(10), 50% threshold |
+| gRPC Keepalive | Scenario 4 | ResilientAppA.java | HTTP/2 PING every 30s, 10s timeout |
+| Channel Pool | Scenario 4 | ResilientAppA.java | N ManagedChannels, round-robin AtomicInteger |
 
 ---
 
@@ -72,9 +72,9 @@ not free; it must be paired with a circuit breaker.**
 
 | Client | RESILIENCE_ENABLED | RETRY_ENABLED | Scenario |
 |---|---|---|---|
-| BClient | false | false | 1 — baseline |
-| RetryBClient | false | true | 2 — retry only |
-| ResilientBClient | true | any | 3, 4 — full stack |
+| AppA | false | false | 1 — baseline |
+| RetryAppA | false | true | 2 — retry only |
+| ResilientAppA | true | any | 3, 4 — full stack |
 
 Activation is via Spring `@ConditionalOnExpression`. Only one client bean is
 active per deployment.
@@ -123,7 +123,7 @@ active per deployment.
 
 ```
 T13 (app-b: FAIL_RATE + dedup)
-  └─ T14 (app-a: RATE_LIMITED + RetryBClient + retry in Resilient)
+  └─ T14 (app-a: RATE_LIMITED + RetryAppA + retry in Resilient)
        └─ T15 (chart: values-scenario{1,2,3,4}.yaml)
             └─ T16 (run_scenario.sh rewrite)
                  └─ T17 (verify_scenario{2,3,4}.sh)
