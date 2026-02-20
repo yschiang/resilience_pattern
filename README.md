@@ -382,13 +382,6 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 | `CIRCUIT_OPEN` | **app-a circuit breaker** | Breaker state = OPEN | `ResilientAppA.java:129` (Resilience4j) |
 | `UNAVAILABLE` | **gRPC client** | TCP connection dead/reset | grpc-java runtime → caught in `ResilientAppA.java:161` |
 
-**Check order (cheapest first):**
-```
-Circuit Breaker  →  CIRCUIT_OPEN        (no lock, no network)
-Bulkhead         →  QUEUE_FULL          (semaphore CAS)
-gRPC + deadline  →  SUCCESS / DEADLINE_EXCEEDED / UNAVAILABLE / BACKEND_ERROR
-```
-
 ---
 
 ## Configuration
