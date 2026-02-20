@@ -85,11 +85,11 @@ After running scenarios, verify assertions:
 
 Manual spot-checks:
 ```bash
-# Scenario 1: confirm RATE_LIMITED errors propagate
-grep 'RATE_LIMITED' tmp/artifacts/scenario1/app-a-*.prom
+# Scenario 1: confirm BACKEND_ERROR errors propagate
+grep 'BACKEND_ERROR' tmp/artifacts/scenario1/app-a-*.prom
 
 # Scenario 2: confirm retry absorbed failures
-grep 'RATE_LIMITED' tmp/artifacts/scenario2/app-a-*.prom
+grep 'BACKEND_ERROR' tmp/artifacts/scenario2/app-a-*.prom
 
 # Scenario 3: confirm fail-fast patterns fired
 grep -E 'QUEUE_FULL|CIRCUIT_OPEN' tmp/artifacts/scenario3/app-a-*.prom

@@ -1,5 +1,5 @@
 #!/bin/bash
-# verify_scenario2.sh — Assert Scenario 2 (retry) reduces RATE_LIMITED vs Scenario 1
+# verify_scenario2.sh — Assert Scenario 2 (retry) reduces BACKEND_ERROR vs Scenario 1
 # Compares tmp/artifacts/scenario1/ vs tmp/artifacts/scenario2/
 # Exit 0 = all assertions PASS, exit 1 = any FAIL
 
@@ -32,28 +32,28 @@ sum_error_code() {
         | awk '{sum += $2} END {print int(sum+0)}'
 }
 
-S1_RATE_LIMITED=$(sum_error_code "$S1_DIR" "RATE_LIMITED")
-S2_RATE_LIMITED=$(sum_error_code "$S2_DIR" "RATE_LIMITED")
+S1_BACKEND_ERROR=$(sum_error_code "$S1_DIR" "BACKEND_ERROR")
+S2_BACKEND_ERROR=$(sum_error_code "$S2_DIR" "BACKEND_ERROR")
 
-# C08: Scenario 1 RATE_LIMITED > 1000 (failures happen without retry)
-if [[ "$S1_RATE_LIMITED" -gt 1000 ]]; then
-    pass "C08" "Scenario 1 RATE_LIMITED=${S1_RATE_LIMITED} (> 1000 — failures propagate)"
+# C08: Scenario 1 BACKEND_ERROR > 1000 (failures happen without retry)
+if [[ "$S1_BACKEND_ERROR" -gt 1000 ]]; then
+    pass "C08" "Scenario 1 BACKEND_ERROR=${S1_BACKEND_ERROR} (> 1000 — failures propagate)"
 else
-    fail "C08" "Scenario 1 RATE_LIMITED=${S1_RATE_LIMITED} should be > 1000"
+    fail "C08" "Scenario 1 BACKEND_ERROR=${S1_BACKEND_ERROR} should be > 1000"
 fi
 
-# C09: Scenario 2 RATE_LIMITED < 100 (retry absorbs ~90% of errors)
-if [[ "$S2_RATE_LIMITED" -lt 100 ]]; then
-    pass "C09" "Scenario 2 RATE_LIMITED=${S2_RATE_LIMITED} (< 100 — retry absorbing failures)"
+# C09: Scenario 2 BACKEND_ERROR < 100 (retry absorbs ~90% of errors)
+if [[ "$S2_BACKEND_ERROR" -lt 100 ]]; then
+    pass "C09" "Scenario 2 BACKEND_ERROR=${S2_BACKEND_ERROR} (< 100 — retry absorbing failures)"
 else
-    fail "C09" "Scenario 2 RATE_LIMITED=${S2_RATE_LIMITED} should be < 100"
+    fail "C09" "Scenario 2 BACKEND_ERROR=${S2_BACKEND_ERROR} should be < 100"
 fi
 
-# C10: S1 RATE_LIMITED > S2 RATE_LIMITED (directional improvement)
-if [[ "$S1_RATE_LIMITED" -gt "$S2_RATE_LIMITED" ]]; then
-    pass "C10" "S1 RATE_LIMITED (${S1_RATE_LIMITED}) > S2 RATE_LIMITED (${S2_RATE_LIMITED})"
+# C10: S1 BACKEND_ERROR > S2 BACKEND_ERROR (directional improvement)
+if [[ "$S1_BACKEND_ERROR" -gt "$S2_BACKEND_ERROR" ]]; then
+    pass "C10" "S1 BACKEND_ERROR (${S1_BACKEND_ERROR}) > S2 BACKEND_ERROR (${S2_BACKEND_ERROR})"
 else
-    fail "C10" "S1 RATE_LIMITED (${S1_RATE_LIMITED}) should be > S2 RATE_LIMITED (${S2_RATE_LIMITED})"
+    fail "C10" "S1 BACKEND_ERROR (${S1_BACKEND_ERROR}) should be > S2 BACKEND_ERROR (${S2_BACKEND_ERROR})"
 fi
 
 echo ""
