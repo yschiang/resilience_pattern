@@ -35,7 +35,7 @@ Run all four scenarios in order. Each takes ~2 minutes.
 ./scripts/run_scenario.sh 4   # +keepalive+pool (+TCP reset at t=15s)
 ```
 
-Artifacts are saved to `tmp/artifacts/scenario<N>/`. Each run produces 8 files:
+Artifacts are saved to `tmp/artifacts/scenarios/`. Each run produces 8 files:
 - `app-a-<pod>.prom` × 2 — Prometheus metrics from each A pod
 - `app-a-<pod>.log`  × 2 — Application logs from each A pod
 - `app-b-<pod>.metrics` × 3 — Go metrics from each B pod
@@ -45,7 +45,7 @@ Artifacts are saved to `tmp/artifacts/scenario<N>/`. Each run produces 8 files:
 
 ## Scenario Reference
 
-### S1 — Downstream Saturation (B_DELAY_MS=200)
+### baseline — Downstream Saturation (B_DELAY_MS=200)
 
 B pods respond slowly (200ms each), causing queue buildup at A.
 
@@ -56,7 +56,7 @@ B pods respond slowly (200ms each), causing queue buildup at A.
 | `CIRCUIT_OPEN` errors | 0 | >10,000 |
 | `QUEUE_FULL` errors | 0 | >800 |
 
-### S4 — Connection Reset (iptables tcp-reset, 15s)
+### selfheal — Connection Reset (iptables tcp-reset, 15s)
 
 One A pod has its gRPC connection to B reset for 15s mid-load.
 
@@ -73,29 +73,29 @@ One A pod has its gRPC connection to B reset for 15s mid-load.
 After running scenarios, verify assertions:
 
 ```bash
-./tests/verify_scenario2.sh
+./tests/verify_retry.sh
 # Expected: PASS=3 FAIL=0, exit 0
 
-./tests/verify_scenario3.sh
+./tests/verify_failfast.sh
 # Expected: PASS=2 FAIL=0, exit 0
 
-./tests/verify_scenario4.sh
+./tests/verify_selfheal.sh
 # Expected: PASS=3 FAIL=0, exit 0
 ```
 
 Manual spot-checks:
 ```bash
-# Scenario 1: confirm BACKEND_ERROR errors propagate
-grep 'BACKEND_ERROR' tmp/artifacts/scenario1/app-a-*.prom
+# baseline scenario: confirm BACKEND_ERROR errors propagate
+grep 'BACKEND_ERROR' tmp/artifacts/baseline/app-a-*.prom
 
-# Scenario 2: confirm retry absorbed failures
-grep 'BACKEND_ERROR' tmp/artifacts/scenario2/app-a-*.prom
+# retry scenario: confirm retry absorbed failures
+grep 'BACKEND_ERROR' tmp/artifacts/retry/app-a-*.prom
 
-# Scenario 3: confirm fail-fast patterns fired
-grep -E 'QUEUE_FULL|CIRCUIT_OPEN' tmp/artifacts/scenario3/app-a-*.prom
+# failfast scenario: confirm fail-fast patterns fired
+grep -E 'QUEUE_FULL|CIRCUIT_OPEN' tmp/artifacts/failfast/app-a-*.prom
 
-# Scenario 4: confirm UNAVAILABLE then self-heal
-grep 'UNAVAILABLE' tmp/artifacts/scenario4/app-a-*.prom
+# selfheal scenario: confirm UNAVAILABLE then self-heal
+grep 'UNAVAILABLE' tmp/artifacts/selfheal/app-a-*.prom
 ```
 
 ---
@@ -105,12 +105,12 @@ grep 'UNAVAILABLE' tmp/artifacts/scenario4/app-a-*.prom
 | File | Purpose |
 |---|---|
 | `chart/values-common.yaml` | A=2 pods, B=3 pods (immutable) |
-| `chart/values-scenario1.yaml` | Baseline: no resilience, no retry, FAIL_RATE=0.3 |
-| `chart/values-scenario2.yaml` | +Retry+Idempotency: RETRY_ENABLED=true |
-| `chart/values-scenario3.yaml` | +Deadline+Bulkhead+CB: RESILIENCE_ENABLED=true, B_DELAY_MS=200 |
-| `chart/values-scenario4.yaml` | +Keepalive+Pool: CHANNEL_POOL_SIZE=4 |
+| `chart/values-baseline.yaml` | Baseline: no resilience, no retry, FAIL_RATE=0.3 |
+| `chart/values-retry.yaml` | +Retry+Idempotency: RETRY_ENABLED=true |
+| `chart/values-failfast.yaml` | +Deadline+Bulkhead+CB: RESILIENCE_ENABLED=true, B_DELAY_MS=200 |
+| `chart/values-selfheal.yaml` | +Keepalive+Pool: CHANNEL_POOL_SIZE=4 |
 
-The scenario runner composes: `values-common.yaml` + `values-scenario<N>.yaml`.
+The scenario runner composes: `values-common.yaml` + `values-scenarios.yaml`.
 
 ---
 
@@ -141,8 +141,8 @@ The app-a image must include `iptables` and `iproute2`. The Dockerfile installs 
 **verify_scenario*.sh: missing artifact directory**
 Run the corresponding scenario first:
 ```bash
-./scripts/run_scenario.sh 1   # required for verify_scenario2.sh and verify_scenario3.sh
-./scripts/run_scenario.sh 2   # required for verify_scenario2.sh
-./scripts/run_scenario.sh 3   # required for verify_scenario3.sh
-./scripts/run_scenario.sh 4   # required for verify_scenario4.sh
+./scripts/run_scenario.sh 1   # required for verify_retry.sh and verify_failfast.sh
+./scripts/run_scenario.sh 2   # required for verify_retry.sh
+./scripts/run_scenario.sh 3   # required for verify_failfast.sh
+./scripts/run_scenario.sh 4   # required for verify_selfheal.sh
 ```

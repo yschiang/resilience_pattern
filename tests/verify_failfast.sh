@@ -1,14 +1,14 @@
 #!/bin/bash
-# verify_scenario3.sh — Assert Scenario 3 (CB+bulkhead+deadline) improves over Scenario 1
-# Compares tmp/artifacts/scenario1/ vs tmp/artifacts/scenario3/
+# verify_failfast.sh — Assert Scenario 3 (CB+bulkhead+deadline) improves over Scenario 1
+# Compares tmp/artifacts/baseline/ vs tmp/artifacts/failfast/
 # Exit 0 = all assertions PASS, exit 1 = any FAIL
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-S1_DIR="$REPO_ROOT/tmp/artifacts/scenario1"
-S3_DIR="$REPO_ROOT/tmp/artifacts/scenario3"
+S1_DIR="$REPO_ROOT/tmp/artifacts/baseline"
+S3_DIR="$REPO_ROOT/tmp/artifacts/failfast"
 
 PASS=0
 FAIL=0

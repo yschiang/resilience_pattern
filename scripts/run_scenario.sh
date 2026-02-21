@@ -1,27 +1,27 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: ./scripts/run_scenario.sh <1|2|3|4>
+# Usage: ./scripts/run_scenario.sh <baseline|retry|failfast|selfheal>
 
-N="${1:-}"
+SCENARIO="${1:-}"
 
-if [[ -z "$N" ]]; then
-    echo "Usage: $0 <1|2|3|4>"
+if [[ -z "$SCENARIO" ]]; then
+    echo "Usage: $0 <baseline|retry|failfast|selfheal>"
     exit 1
 fi
 
-if [[ ! "$N" =~ ^[1-4]$ ]]; then
-    echo "Error: argument must be 1, 2, 3, or 4 (got: $N)"
+if [[ ! "$SCENARIO" =~ ^(baseline|retry|failfast|selfheal)$ ]]; then
+    echo "Error: argument must be baseline, retry, failfast, or selfheal (got: $SCENARIO)"
     exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 CHART_DIR="$REPO_ROOT/chart"
-ARTIFACTS_DIR="$REPO_ROOT/tmp/artifacts/scenario${N}"
+ARTIFACTS_DIR="$REPO_ROOT/tmp/artifacts/${SCENARIO}"
 NAMESPACE="demo"
 
-echo "==> Running scenario: ${N}"
+echo "==> Running scenario: ${SCENARIO}"
 
 # Create artifacts directory
 mkdir -p "$ARTIFACTS_DIR"
@@ -30,10 +30,10 @@ mkdir -p "$ARTIFACTS_DIR"
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 # Deploy helm chart
-echo "==> Deploying helm chart (scenario${N})..."
+echo "==> Deploying helm chart (${SCENARIO})..."
 helm upgrade --install resilience-demo "$CHART_DIR" \
     -f "$CHART_DIR/values-common.yaml" \
-    -f "$CHART_DIR/values-scenario${N}.yaml" \
+    -f "$CHART_DIR/values-${SCENARIO}.yaml" \
     --namespace "$NAMESPACE"
 
 # Wait for pods to be ready
@@ -48,13 +48,13 @@ echo "==> A service: $A_SERVICE"
 # Per-scenario fortio params
 FORTIO_QPS=200
 FORTIO_T=60s
-case "$N" in
-    3) FORTIO_C=80 ;;   # Overload scenario: higher concurrency
+case "$SCENARIO" in
+    failfast) FORTIO_C=80 ;;   # Overload scenario: higher concurrency
     *) FORTIO_C=50 ;;
 esac
 
-if [[ "$N" == "4" ]]; then
-    # Scenario 4: run fortio in background, inject fault at t=15s
+if [[ "$SCENARIO" == "selfheal" ]]; then
+    # selfheal scenario: run fortio in background, inject fault at t=15s
     echo "==> Running fortio load test with fault injection (qps=$FORTIO_QPS, c=$FORTIO_C, t=$FORTIO_T)..."
     kubectl run fortio-load --rm -i --restart=Never --image=fortio/fortio -n "$NAMESPACE" -- \
         load -qps $FORTIO_QPS -c $FORTIO_C -t $FORTIO_T -timeout 2s \
@@ -66,11 +66,11 @@ if [[ "$N" == "4" ]]; then
 
     A_POD=$(kubectl get pods -l app=app-a -o jsonpath='{.items[0].metadata.name}' -n "$NAMESPACE")
     echo "==> Injecting TCP reset fault into A pod: $A_POD"
-    "$SCRIPT_DIR/inject_s4.sh" "$A_POD" "$NAMESPACE"
+    "$SCRIPT_DIR/inject_selfheal.sh" "$A_POD" "$NAMESPACE"
 
     wait $FORTIO_PID || true
 else
-    # Scenarios 1, 2, 3: plain load test
+    # baseline, retry, failfast: plain load test
     echo "==> Running fortio load test (qps=$FORTIO_QPS, c=$FORTIO_C, t=$FORTIO_T)..."
     kubectl run fortio-load --rm -i --restart=Never --image=fortio/fortio -n "$NAMESPACE" -- \
         load -qps $FORTIO_QPS -c $FORTIO_C -t $FORTIO_T -timeout 2s \

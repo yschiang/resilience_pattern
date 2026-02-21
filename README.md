@@ -35,13 +35,13 @@ failures easy to reproduce.
 
 ## Coverage Matrix
 
-| Failure mode | Scenario 1 | Scenario 2 | Scenario 3 | Scenario 4 |
+| Failure mode | baseline scenario | retry scenario | failfast scenario | selfheal scenario |
 |---|---|---|---|---|
 | RESOURCE_EXHAUSTED (30%) | ❌ | ✅ | ✅ | ✅ |
 | Slow B / overload | ❌ | ❌ worse | ✅ | ✅ |
 | TCP connection reset | ❌ | ❌ | ❌ slow | ✅ |
 
-Scenario 2 deliberately makes overload *worse* before Scenario 3 fixes it —
+retry scenario deliberately makes overload *worse* before failfast scenario fixes it —
 the most important anti-pattern lesson: **retry amplifies load without a
 circuit breaker**.
 
@@ -61,13 +61,13 @@ circuit breaker**.
 ./scripts/run_scenario.sh 4   # +keepalive+pool (+TCP reset at t=15s)
 
 # Verify
-./tests/verify_scenario2.sh   # PASS=3 FAIL=0
-./tests/verify_scenario3.sh   # PASS=2 FAIL=0
-./tests/verify_scenario4.sh   # PASS=3 FAIL=0
+./tests/verify_retry.sh   # PASS=3 FAIL=0
+./tests/verify_failfast.sh   # PASS=2 FAIL=0
+./tests/verify_selfheal.sh   # PASS=3 FAIL=0
 ```
 
 Each run deploys via Helm, runs a 60 s Fortio load test, and saves 8 artifacts
-to `tmp/artifacts/scenario<N>/`.
+to `tmp/artifacts/scenarios/`.
 
 ---
 
@@ -75,13 +75,13 @@ to `tmp/artifacts/scenario<N>/`.
 
 | Pattern | Added in | File | Mechanism |
 |---|---|---|---|
-| gRPC retry | Scenario 2 | `RetryAppA.java`, `ResilientAppA.java` | gRPC service config: maxAttempts=3, retryable on `RESOURCE_EXHAUSTED` |
-| Idempotency dedup | Scenario 2 | `app-b/main.go` | `seenRequests sync.Map` keyed on `req.Id`, 30 s TTL |
-| Deadline | Scenario 3 | `ResilientAppA.java` | `withDeadlineAfter(800ms)` |
-| Bulkhead | Scenario 3 | `ResilientAppA.java` | `Semaphore.tryAcquire(MAX_INFLIGHT=10)` |
-| Circuit Breaker | Scenario 3 | `ResilientAppA.java` | Resilience4j `COUNT_BASED(10)`, 50% threshold |
-| gRPC Keepalive | Scenario 4 | `ResilientAppA.java` | HTTP/2 PING every 30 s, 10 s timeout |
-| Channel Pool | Scenario 4 | `ResilientAppA.java` | N `ManagedChannel` instances, round-robin `AtomicInteger` |
+| gRPC retry | retry scenario | `RetryAppA.java`, `ResilientAppA.java` | gRPC service config: maxAttempts=3, retryable on `RESOURCE_EXHAUSTED` |
+| Idempotency dedup | retry scenario | `app-b/main.go` | `seenRequests sync.Map` keyed on `req.Id`, 30 s TTL |
+| Deadline | failfast scenario | `ResilientAppA.java` | `withDeadlineAfter(800ms)` |
+| Bulkhead | failfast scenario | `ResilientAppA.java` | `Semaphore.tryAcquire(MAX_INFLIGHT=10)` |
+| Circuit Breaker | failfast scenario | `ResilientAppA.java` | Resilience4j `COUNT_BASED(10)`, 50% threshold |
+| gRPC Keepalive | selfheal scenario | `ResilientAppA.java` | HTTP/2 PING every 30 s, 10 s timeout |
+| Channel Pool | selfheal scenario | `ResilientAppA.java` | N `ManagedChannel` instances, round-robin `AtomicInteger` |
 
 ---
 
@@ -89,16 +89,16 @@ to `tmp/artifacts/scenario<N>/`.
 
 | Scenario | Failure injected | Expected observation |
 |---|---|---|
-| S1 | `FAIL_RATE=0.3` — B injects `RESOURCE_EXHAUSTED` randomly | ~30% `BACKEND_ERROR`; all propagate to caller |
-| S2 | Same `FAIL_RATE=0.3` | `BACKEND_ERROR` drops ~10×; retry amplifies load when B is slow (hidden cost) |
-| S3 | `FAIL_RATE=0.3` + `B_DELAY_MS=200` (slow B) | `QUEUE_FULL` + `CIRCUIT_OPEN` > 100; max latency lower than S1 |
-| S4 | `FAIL_RATE=0.3` + iptables tcp-reset at t=15 s | `UNAVAILABLE` > 50 (fault visible); `SUCCESS` > 10,000; `UNAVAILABLE` < 10% of `SUCCESS` (self-heal) |
+| baseline | `FAIL_RATE=0.3` — B injects `RESOURCE_EXHAUSTED` randomly | ~30% `BACKEND_ERROR`; all propagate to caller |
+| retry | Same `FAIL_RATE=0.3` | `BACKEND_ERROR` drops ~10×; retry amplifies load when B is slow (hidden cost) |
+| failfast | `FAIL_RATE=0.3` + `B_DELAY_MS=200` (slow B) | `QUEUE_FULL` + `CIRCUIT_OPEN` > 100; max latency lower than baseline |
+| selfheal | `FAIL_RATE=0.3` + iptables tcp-reset at t=15 s | `UNAVAILABLE` > 50 (fault visible); `SUCCESS` > 10,000; `UNAVAILABLE` < 10% of `SUCCESS` (self-heal) |
 
 ---
 
 ## Per-Scenario Detail
 
-### Scenario 1 — Baseline
+### baseline scenario — Baseline
 
 **Call chain:**
 ```
@@ -130,7 +130,7 @@ HTTP client: sees 30% BACKEND_ERROR
 
 ---
 
-### Scenario 2 — +Retry + Idempotency
+### retry scenario — +Retry + Idempotency
 
 **Call chain:**
 ```
@@ -180,7 +180,7 @@ HTTP client (200 QPS)
 - Check happens **before** `workerMutex.Lock()` → instant return, no queue wait
 - Cached reply reused across retry attempts
 
-**The anti-pattern hidden here:** Under fast B (5 ms), retry looks like pure win. But when B is slow (Scenario 3's 200 ms), retry amplifies load up to 3× and accelerates saturation. Without a circuit breaker to shed excess load, the system gets worse, not better.
+**The anti-pattern hidden here:** Under fast B (5 ms), retry looks like pure win. But when B is slow (failfast scenario's 200 ms), retry amplifies load up to 3× and accelerates saturation. Without a circuit breaker to shed excess load, the system gets worse, not better.
 
 **What you observe:**
 - `BACKEND_ERROR` visible errors: ~300 (down from 3,600)
@@ -188,7 +188,7 @@ HTTP client (200 QPS)
 
 ---
 
-### Scenario 3 — +Deadline + Bulkhead + Circuit Breaker
+### failfast scenario — +Deadline + Bulkhead + Circuit Breaker
 
 **Call chain (protection layers):**
 ```
@@ -262,7 +262,7 @@ HTTP request arrives
 - **t=8-60s**: Oscillates between OPEN (shedding load) and CLOSED/HALF_OPEN (probing)
 
 **Protection cascade:**
-- Deadline prevents indefinite wait (was 4s in S1, now capped at 800ms)
+- Deadline prevents indefinite wait (was 4s in baseline, now capped at 800ms)
 - Bulkhead prevents thread exhaustion (without it, all 80 client threads would block)
 - CB sheds load before it reaches network (saves B from retry amplification)
 
@@ -271,12 +271,12 @@ HTTP request arrives
 - `QUEUE_FULL`: >800 (bulkhead rejecting excess even when CB closed)
 - `DEADLINE_EXCEEDED`: ~500 (slow B responses that exceeded 800 ms)
 - `BACKEND_ERROR`: ~100 (B's 30% fail rate, but only on requests that get through)
-- `a_downstream_latency_ms_seconds_max`: ~1 s (vs 4 s in S1) — deadline enforced
+- `a_downstream_latency_ms_seconds_max`: ~1 s (vs 4 s in baseline) — deadline enforced
 - `a_breaker_state`: oscillates 0 (CLOSED) → 2 (OPEN) → 1 (HALF_OPEN)
 
 ---
 
-### Scenario 4 — +Keepalive + Channel Pool
+### selfheal scenario — +Keepalive + Channel Pool
 
 **Call chain (with channel pool):**
 ```
@@ -388,13 +388,13 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 
 | Env var | Default | Purpose | Active from |
 |---|---|---|---|
-| `RESILIENCE_ENABLED` | false | Activates ResilientAppA | Scenario 3 |
-| `RETRY_ENABLED` | false | Activates RetryAppA | Scenario 2 |
-| `FAIL_RATE` | 0.0 | B-side failure injection rate | Scenario 1 |
-| `B_DELAY_MS` | 5 | B response delay (ms) | Scenario 3 (200ms) |
-| `DEADLINE_MS` | 800 | Per-call gRPC deadline | Scenario 3 |
-| `MAX_INFLIGHT` | 10 | Bulkhead semaphore size | Scenario 3 |
-| `CHANNEL_POOL_SIZE` | 1 | gRPC channel pool size | Scenario 4 (4) |
+| `RESILIENCE_ENABLED` | false | Activates ResilientAppA | failfast scenario |
+| `RETRY_ENABLED` | false | Activates RetryAppA | retry scenario |
+| `FAIL_RATE` | 0.0 | B-side failure injection rate | baseline scenario |
+| `B_DELAY_MS` | 5 | B response delay (ms) | failfast scenario (200ms) |
+| `DEADLINE_MS` | 800 | Per-call gRPC deadline | failfast scenario |
+| `MAX_INFLIGHT` | 10 | Bulkhead semaphore size | failfast scenario |
+| `CHANNEL_POOL_SIZE` | 1 | gRPC channel pool size | selfheal scenario (4) |
 
 ---
 
@@ -407,7 +407,7 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 │   └── app-b/              # Go gRPC: single-threaded, FAIL_RATE, idempotency
 ├── chart/
 │   ├── values-common.yaml        # A=2, B=3 (immutable)
-│   ├── values-scenario{1,2,3,4}.yaml  # P5 learning roadmap (use these)
+│   ├── values-{baseline,retry,failfast,selfheal}.yaml  # P5 learning roadmap (use these)
 │   └── values-{baseline,resilient,s1,s4}.yaml  # deprecated
 ├── scripts/
 │   ├── run_scenario.sh     # ./run_scenario.sh <1|2|3|4>

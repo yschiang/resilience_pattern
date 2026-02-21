@@ -1,14 +1,14 @@
 #!/bin/bash
-# verify_scenario2.sh — Assert Scenario 2 (retry) reduces BACKEND_ERROR vs Scenario 1
-# Compares tmp/artifacts/scenario1/ vs tmp/artifacts/scenario2/
+# verify_retry.sh — Assert Scenario 2 (retry) reduces BACKEND_ERROR vs Scenario 1
+# Compares tmp/artifacts/baseline/ vs tmp/artifacts/retry/
 # Exit 0 = all assertions PASS, exit 1 = any FAIL
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-S1_DIR="$REPO_ROOT/tmp/artifacts/scenario1"
-S2_DIR="$REPO_ROOT/tmp/artifacts/scenario2"
+S1_DIR="$REPO_ROOT/tmp/artifacts/baseline"
+S2_DIR="$REPO_ROOT/tmp/artifacts/retry"
 
 PASS=0
 FAIL=0
