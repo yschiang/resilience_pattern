@@ -58,13 +58,13 @@ not free; it must be paired with a circuit breaker.**
 
 | Pattern | Added in | File | Mechanism |
 |---|---|---|---|
-| gRPC retry | retry scenario | RetryAppA.java, ResilientAppA.java | gRPC service config: maxAttempts=3, RESOURCE_EXHAUSTED |
+| gRPC retry | retry scenario | RetryAppABaseline.java, ResilientAppABaseline.java | gRPC service config: maxAttempts=3, RESOURCE_EXHAUSTED |
 | Idempotency dedup | retry scenario | app-b/main.go | seenRequests sync.Map keyed on req.Id, 30s TTL |
-| Deadline | failfast scenario | ResilientAppA.java | withDeadlineAfter(800ms) |
-| Bulkhead | failfast scenario | ResilientAppA.java | Semaphore.tryAcquire(MAX_INFLIGHT) |
-| Circuit Breaker | failfast scenario | ResilientAppA.java | Resilience4j COUNT_BASED(10), 50% threshold |
-| gRPC Keepalive | selfheal scenario | ResilientAppA.java | HTTP/2 PING every 30s, 10s timeout |
-| Channel Pool | selfheal scenario | ResilientAppA.java | N ManagedChannels, round-robin AtomicInteger |
+| Deadline | failfast scenario | ResilientAppABaseline.java | withDeadlineAfter(800ms) |
+| Bulkhead | failfast scenario | ResilientAppABaseline.java | Semaphore.tryAcquire(MAX_INFLIGHT) |
+| Circuit Breaker | failfast scenario | ResilientAppABaseline.java | Resilience4j COUNT_BASED(10), 50% threshold |
+| gRPC Keepalive | selfheal scenario | ResilientAppABaseline.java | HTTP/2 PING every 30s, 10s timeout |
+| Channel Pool | selfheal scenario | ResilientAppABaseline.java | N ManagedChannels, round-robin AtomicInteger |
 
 ---
 
