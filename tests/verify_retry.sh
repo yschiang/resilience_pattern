@@ -1,14 +1,14 @@
 #!/bin/bash
-# verify_scenario2.sh — Assert Scenario 2 (retry) reduces BACKEND_ERROR vs Scenario 1
-# Compares tmp/artifacts/scenario1/ vs tmp/artifacts/scenario2/
+# verify_retry.sh — Assert Scenario 2 (retry) reduces BACKEND_ERROR vs Scenario 1
+# Compares tmp/artifacts/baseline/ vs tmp/artifacts/retry/
 # Exit 0 = all assertions PASS, exit 1 = any FAIL
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-S1_DIR="$REPO_ROOT/tmp/artifacts/scenario1"
-S2_DIR="$REPO_ROOT/tmp/artifacts/scenario2"
+S1_DIR="$REPO_ROOT/tmp/artifacts/baseline"
+S2_DIR="$REPO_ROOT/tmp/artifacts/retry"
 
 PASS=0
 FAIL=0
@@ -17,11 +17,11 @@ pass() { echo "PASS $1: $2"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL $1: $2"; FAIL=$((FAIL + 1)); }
 
 if [[ ! -d "$S1_DIR" ]]; then
-    echo "ERROR: missing $S1_DIR — run ./scripts/run_scenario.sh 1 first"
+    echo "ERROR: missing $S1_DIR — run ./scripts/run_scenario.sh baseline first"
     exit 1
 fi
 if [[ ! -d "$S2_DIR" ]]; then
-    echo "ERROR: missing $S2_DIR — run ./scripts/run_scenario.sh 2 first"
+    echo "ERROR: missing $S2_DIR — run ./scripts/run_scenario.sh retry first"
     exit 1
 fi
 

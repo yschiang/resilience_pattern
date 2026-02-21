@@ -18,7 +18,7 @@ import java.util.Map;
 
 @Component
 @ConditionalOnExpression("'${retry.enabled:false}' == 'true' && '${resilience.enabled:false}' == 'false'")
-public class RetryAppA implements AppAPort {
+public class AppARetry implements AppAPort {
 
     @Value("${b.service.url}") private String bServiceUrl;
     @Autowired private MetricsService metricsService;

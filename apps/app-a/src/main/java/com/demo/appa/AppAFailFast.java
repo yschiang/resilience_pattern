@@ -28,8 +28,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 @ConditionalOnProperty(name = "resilience.enabled", havingValue = "true")
-public class ResilientAppA implements AppAPort {
-    private static final Logger logger = LoggerFactory.getLogger(ResilientAppA.class);
+public class AppAFailFast implements AppAPort {
+    private static final Logger logger = LoggerFactory.getLogger(AppAFailFast.class);
 
     @Value("${b.service.url}")
     private String bServiceUrl;

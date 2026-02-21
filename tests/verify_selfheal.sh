@@ -1,13 +1,13 @@
 #!/bin/bash
-# verify_scenario4.sh — Assert Scenario 4 (keepalive+pool) self-heals after TCP reset
-# Parses tmp/artifacts/scenario4/
+# verify_selfheal.sh — Assert Scenario 4 (keepalive+pool) self-heals after TCP reset
+# Parses tmp/artifacts/selfheal/
 # Exit 0 = all assertions PASS, exit 1 = any FAIL
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-S4_DIR="$REPO_ROOT/tmp/artifacts/scenario4"
+S4_DIR="$REPO_ROOT/tmp/artifacts/selfheal"
 
 PASS=0
 FAIL=0
@@ -16,7 +16,7 @@ pass() { echo "PASS $1: $2"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL $1: $2"; FAIL=$((FAIL + 1)); }
 
 if [[ ! -d "$S4_DIR" ]]; then
-    echo "ERROR: missing $S4_DIR — run ./scripts/run_scenario.sh 4 first"
+    echo "ERROR: missing $S4_DIR — run ./scripts/run_scenario.sh selfheal first"
     exit 1
 fi
 
