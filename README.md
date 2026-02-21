@@ -75,13 +75,13 @@ to `tmp/artifacts/scenarios/`.
 
 | Pattern | Added in | File | Mechanism |
 |---|---|---|---|
-| gRPC retry | Scenario 2: Retry | `AppARetry.java`, `AppAFailFast.java` | gRPC service config: maxAttempts=3, retryable on `RESOURCE_EXHAUSTED` |
+| gRPC retry | Scenario 2: Retry | `AppARetry.java`, `AppAResilient.java` | gRPC service config: maxAttempts=3, retryable on `RESOURCE_EXHAUSTED` |
 | Idempotency dedup | Scenario 2: Retry | `app-b/main.go` | `seenRequests sync.Map` keyed on `req.Id`, 30 s TTL |
-| Deadline | Scenario 3: Failfast | `AppAFailFast.java` | `withDeadlineAfter(800ms)` |
-| Bulkhead | Scenario 3: Failfast | `AppAFailFast.java` | `Semaphore.tryAcquire(MAX_INFLIGHT=10)` |
-| Circuit Breaker | Scenario 3: Failfast | `AppAFailFast.java` | Resilience4j `COUNT_BASED(10)`, 50% threshold |
-| gRPC Keepalive | Scenario 4: Selfheal | `AppAFailFast.java` | HTTP/2 PING every 30 s, 10 s timeout |
-| Channel Pool | Scenario 4: Selfheal | `AppAFailFast.java` | N `ManagedChannel` instances, round-robin `AtomicInteger` |
+| Deadline | Scenario 3: Failfast | `AppAResilient.java` | `withDeadlineAfter(800ms)` |
+| Bulkhead | Scenario 3: Failfast | `AppAResilient.java` | `Semaphore.tryAcquire(MAX_INFLIGHT=10)` |
+| Circuit Breaker | Scenario 3: Failfast | `AppAResilient.java` | Resilience4j `COUNT_BASED(10)`, 50% threshold |
+| gRPC Keepalive | Scenario 4: Selfheal | `AppAResilient.java` | HTTP/2 PING every 30 s, 10 s timeout |
+| Channel Pool | Scenario 4: Selfheal | `AppAResilient.java` | N `ManagedChannel` instances, round-robin `AtomicInteger` |
 
 ---
 
@@ -215,7 +215,7 @@ HTTP client: sees CIRCUIT_OPEN + QUEUE_FULL + DEADLINE_EXCEEDED (fast-fail)
 ```
 
 **Configuration:**
-- Client: `AppAFailFast` (full protection stack)
+- Client: `AppAResilient` (full protection stack)
 - Patterns: deadline (800 ms), bulkhead (10 inflight), CB (10 calls, 50% threshold, 5 s wait), **plus retry**
 - B behavior: `FAIL_RATE=0.3`, **`B_DELAY_MS=200`** (slow!)
 - Load: 200 QPS, C=80 (higher concurrency to trigger overload)
@@ -230,25 +230,25 @@ HTTP client: sees CIRCUIT_OPEN + QUEUE_FULL + DEADLINE_EXCEEDED (fast-fail)
 ```
 HTTP request arrives
   ↓
-1. Circuit Breaker check (AppAFailFast.java:127)
+1. Circuit Breaker check (AppAResilient.java:127)
    - State = CLOSED initially
    - After ≥5 failures in 10 calls → trips OPEN
    - OPEN: return CIRCUIT_OPEN immediately (no lock, no network)
    - After 5 s → HALF_OPEN, allows 3 probe calls
    ↓ (if CLOSED or HALF_OPEN)
-2. Bulkhead check (AppAFailFast.java:133)
+2. Bulkhead check (AppAResilient.java:133)
    - semaphore.tryAcquire(MAX_INFLIGHT=10)
    - If 10 already inflight → return QUEUE_FULL (CAS, <1 μs)
    ↓ (if acquired)
-3. gRPC call with deadline (AppAFailFast.java:153-154)
+3. gRPC call with deadline (AppAResilient.java:153-154)
    - withDeadlineAfter(800ms)
    - B takes 200 ms + queue wait
    - If total > 800 ms → DEADLINE_EXCEEDED
    - If < 800 ms and B returns RESOURCE_EXHAUSTED → retry (up to 3 attempts)
    ↓ (after call)
-4. Bulkhead release (AppAFailFast.java:165)
+4. Bulkhead release (AppAResilient.java:165)
    - semaphore.release()
-5. Circuit Breaker record (AppAFailFast.java:170)
+5. Circuit Breaker record (AppAResilient.java:170)
    - Success or failure recorded
    - Triggers state transition if threshold crossed
 ```
@@ -299,7 +299,7 @@ HTTP client: small UNAVAILABLE burst, then self-heals
 ```
 
 **Configuration:**
-- Client: `AppAFailFast` with `CHANNEL_POOL_SIZE=4`
+- Client: `AppAResilient` with `CHANNEL_POOL_SIZE=4`
 - Patterns: deadline, bulkhead, CB, retry, **keepalive (30s interval, 10s timeout), 4-channel pool**
 - B behavior: `FAIL_RATE=0.3`, `B_DELAY_MS=5` (fast again)
 - Load: 200 QPS for 60 s
@@ -340,7 +340,7 @@ t=45s:    iptables rule removed
 t=45-60s: All 4 channels healthy, normal operation resumes
 ```
 
-**gRPC Keepalive** (`AppAFailFast.java:72-74`):
+**gRPC Keepalive** (`AppAResilient.java:72-74`):
 ```java
 .keepAliveTime(30, TimeUnit.SECONDS)      // HTTP/2 PING interval
 .keepAliveTimeout(10, TimeUnit.SECONDS)   // PING response timeout
@@ -349,7 +349,7 @@ t=45-60s: All 4 channels healthy, normal operation resumes
 - Detects dead connection in **10-40 s** (depends on when last PING sent)
 - Far faster than OS TCP keepalive: 9 probes × 75 s = **11 minutes**
 
-**Channel Pool** (`AppAFailFast.java:77-79`, `145-146`):
+**Channel Pool** (`AppAResilient.java:77-79`, `145-146`):
 ```java
 for (int i = 0; i < channelPoolSize; i++) {
     channels.add(/* create channel with keepalive */);
@@ -377,10 +377,10 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 | Code | Returned by | When | Location |
 |---|---|---|---|
 | `BACKEND_ERROR` | **app-b** | Random 30% of requests (FAIL_RATE injection) | `main.go:55` → gRPC `RESOURCE_EXHAUSTED` → mapped in `ErrorCode.java:34` |
-| `DEADLINE_EXCEEDED` | **gRPC client** | Call exceeds 800 ms deadline | grpc-java runtime → caught in `AppAFailFast.java:161` |
-| `QUEUE_FULL` | **app-a bulkhead** | Semaphore full (>10 inflight) | `AppAFailFast.java:136` (tryAcquire fails) |
-| `CIRCUIT_OPEN` | **app-a circuit breaker** | Breaker state = OPEN | `AppAFailFast.java:129` (Resilience4j) |
-| `UNAVAILABLE` | **gRPC client** | TCP connection dead/reset | grpc-java runtime → caught in `AppAFailFast.java:161` |
+| `DEADLINE_EXCEEDED` | **gRPC client** | Call exceeds 800 ms deadline | grpc-java runtime → caught in `AppAResilient.java:161` |
+| `QUEUE_FULL` | **app-a bulkhead** | Semaphore full (>10 inflight) | `AppAResilient.java:136` (tryAcquire fails) |
+| `CIRCUIT_OPEN` | **app-a circuit breaker** | Breaker state = OPEN | `AppAResilient.java:129` (Resilience4j) |
+| `UNAVAILABLE` | **gRPC client** | TCP connection dead/reset | grpc-java runtime → caught in `AppAResilient.java:161` |
 
 ---
 
