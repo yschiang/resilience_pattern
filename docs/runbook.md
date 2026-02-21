@@ -85,16 +85,16 @@ After running scenarios, verify assertions:
 
 Manual spot-checks:
 ```bash
-# baseline scenario: confirm BACKEND_ERROR errors propagate
+# Scenario 1: Baseline: confirm BACKEND_ERROR errors propagate
 grep 'BACKEND_ERROR' tmp/artifacts/baseline/app-a-*.prom
 
-# retry scenario: confirm retry absorbed failures
+# Scenario 2: Retry: confirm retry absorbed failures
 grep 'BACKEND_ERROR' tmp/artifacts/retry/app-a-*.prom
 
-# failfast scenario: confirm fail-fast patterns fired
+# Scenario 3: Failfast: confirm fail-fast patterns fired
 grep -E 'QUEUE_FULL|CIRCUIT_OPEN' tmp/artifacts/failfast/app-a-*.prom
 
-# selfheal scenario: confirm UNAVAILABLE then self-heal
+# Scenario 4: Selfheal: confirm UNAVAILABLE then self-heal
 grep 'UNAVAILABLE' tmp/artifacts/selfheal/app-a-*.prom
 ```
 

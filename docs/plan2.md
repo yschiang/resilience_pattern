@@ -9,7 +9,7 @@ that the resilient mode was better, but could not learn *which pattern did what*
 
 P5 restructures the demo into four cumulative scenarios. Each scenario adds
 exactly one group of patterns and introduces exactly one new failure mode. A
-learner runs baseline scenario → 4 in order, watching each pattern's contribution in
+learner runs Scenario 1: Baseline → 4 in order, watching each pattern's contribution in
 isolation before the next is added.
 
 ---
@@ -27,7 +27,7 @@ isolation before the next is added.
 
 ## Coverage Matrix
 
-| Failure mode | baseline scenario | retry scenario | failfast scenario | selfheal scenario |
+| Failure mode | Scenario 1: Baseline | Scenario 2: Retry | Scenario 3: Failfast | Scenario 4: Selfheal |
 |---|---|---|---|---|
 | RESOURCE_EXHAUSTED (30%) | ❌ raw propagation | ✅ retry absorbs | ✅ retry + CB | ✅ retry + CB |
 | Slow B / overload cascade | ❌ | ❌ worse (retry amplifies) | ✅ CB + bulkhead shed | ✅ |
@@ -35,19 +35,19 @@ isolation before the next is added.
 
 ---
 
-## The Anti-Pattern Lesson (retry scenario → 3)
+## The Anti-Pattern Lesson (Scenario 2: Retry → 3)
 
-retry scenario deliberately makes overload *worse* before failfast scenario fixes it.
+Scenario 2: Retry deliberately makes overload *worse* before Scenario 3: Failfast fixes it.
 
 When B is slow (B_DELAY_MS=200), retry without a circuit breaker amplifies
 load. Each failed call is retried up to 3 times — effectively multiplying
 inflight requests by up to 3×. This accelerates queue saturation at B and
 increases latency at A.
 
-failfast scenario adds the circuit breaker and bulkhead *alongside* retry. The CB
+Scenario 3: Failfast adds the circuit breaker and bulkhead *alongside* retry. The CB
 opens after 50% errors in 10 calls and sheds load via CIRCUIT_OPEN (no network
 attempt). The bulkhead caps inflight at MAX_INFLIGHT=10. Together they contain
-the blast radius that retry scenario's retry exposed.
+the blast radius that Scenario 2: Retry's retry exposed.
 
 This is the most important distributed systems lesson in the demo: **retry is
 not free; it must be paired with a circuit breaker.**
@@ -58,13 +58,13 @@ not free; it must be paired with a circuit breaker.**
 
 | Pattern | Added in | File | Mechanism |
 |---|---|---|---|
-| gRPC retry | retry scenario | RetryAppABaseline.java, ResilientAppABaseline.java | gRPC service config: maxAttempts=3, RESOURCE_EXHAUSTED |
-| Idempotency dedup | retry scenario | app-b/main.go | seenRequests sync.Map keyed on req.Id, 30s TTL |
-| Deadline | failfast scenario | ResilientAppABaseline.java | withDeadlineAfter(800ms) |
-| Bulkhead | failfast scenario | ResilientAppABaseline.java | Semaphore.tryAcquire(MAX_INFLIGHT) |
-| Circuit Breaker | failfast scenario | ResilientAppABaseline.java | Resilience4j COUNT_BASED(10), 50% threshold |
-| gRPC Keepalive | selfheal scenario | ResilientAppABaseline.java | HTTP/2 PING every 30s, 10s timeout |
-| Channel Pool | selfheal scenario | ResilientAppABaseline.java | N ManagedChannels, round-robin AtomicInteger |
+| gRPC retry | Scenario 2: Retry | RetryAppABaseline.java, ResilientAppABaseline.java | gRPC service config: maxAttempts=3, RESOURCE_EXHAUSTED |
+| Idempotency dedup | Scenario 2: Retry | app-b/main.go | seenRequests sync.Map keyed on req.Id, 30s TTL |
+| Deadline | Scenario 3: Failfast | ResilientAppABaseline.java | withDeadlineAfter(800ms) |
+| Bulkhead | Scenario 3: Failfast | ResilientAppABaseline.java | Semaphore.tryAcquire(MAX_INFLIGHT) |
+| Circuit Breaker | Scenario 3: Failfast | ResilientAppABaseline.java | Resilience4j COUNT_BASED(10), 50% threshold |
+| gRPC Keepalive | Scenario 4: Selfheal | ResilientAppABaseline.java | HTTP/2 PING every 30s, 10s timeout |
+| Channel Pool | Scenario 4: Selfheal | ResilientAppABaseline.java | N ManagedChannels, round-robin AtomicInteger |
 
 ---
 
@@ -89,11 +89,11 @@ active per deployment.
 - Consistent 30% rate across all scenarios so error reduction is attributable
   solely to the patterns, not to changing the failure rate
 
-### B_DELAY_MS=200 (failfast scenario)
+### B_DELAY_MS=200 (Scenario 3: Failfast)
 - App-b sleeps 200ms per request, simulating a slow downstream
 - Combined with FAIL_RATE=0.3 and retry amplification, triggers overload cascade
 
-### iptables TCP reset (selfheal scenario)
+### iptables TCP reset (Scenario 4: Selfheal)
 - `inject_s4.sh` runs inside the first app-a pod at t=15s
 - Resets all TCP connections on port 50051 for 30s
 - Keepalive detects dead connection; channel pool limits blast radius per reset
