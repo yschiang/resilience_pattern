@@ -134,8 +134,13 @@ public class AppAResilient implements AppAPort {
         if (!semaphore.tryAcquire()) {
             circuitBreaker.releasePermission();
             logger.warn("Bulkhead full (QUEUE_FULL) for request {}", requestId);
+
+            // NEW: Use standard "BULKHEAD_REJECTED" reason for new metrics
             metricsService.recordCall("Work", 0, null, "BULKHEAD_REJECTED");
+
+            // LEGACY: Keep QUEUE_FULL for backward compatibility
             metricsService.recordDownstreamCall(0, ErrorCode.QUEUE_FULL);
+
             return new WorkResult(false, ErrorCode.QUEUE_FULL.name(), 0, ErrorCode.QUEUE_FULL);
         }
 

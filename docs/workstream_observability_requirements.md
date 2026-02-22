@@ -35,6 +35,8 @@ Records latency for both success and failure.
 | `BULKHEAD_REJECTED` | No | Semaphore full |
 | `UNKNOWN` | No | Fallback |
 
+**Note:** Legacy code uses `ErrorCode.QUEUE_FULL` for the same protection event. In the new metrics taxonomy, this maps to `reason=BULKHEAD_REJECTED` to use standard resilience terminology.
+
 ---
 
 ## Implementation

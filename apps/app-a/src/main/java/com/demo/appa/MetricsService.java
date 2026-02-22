@@ -107,10 +107,21 @@ public class MetricsService {
             .increment();
 
         // Histogram: grpc_client_latency_ms
+        // Enable histogram buckets for PromQL histogram_quantile() queries
         Timer.builder("grpc_client_latency_ms")
             .description("gRPC client request latency")
             .tag("service", "demo-service-b")
             .tag("method", method)
+            .serviceLevelObjectives(
+                Duration.ofMillis(10),
+                Duration.ofMillis(50),
+                Duration.ofMillis(100),
+                Duration.ofMillis(200),
+                Duration.ofMillis(500),
+                Duration.ofMillis(1000),
+                Duration.ofMillis(2000),
+                Duration.ofMillis(5000)
+            )
             .register(registry)
             .record(latencyMs, TimeUnit.MILLISECONDS);
     }
