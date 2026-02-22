@@ -6,6 +6,30 @@ order to watch each pattern's contribution in isolation.
 
 ---
 
+## Table of Contents
+
+- [The Four Scenarios](#the-four-scenarios)
+- [Architecture](#architecture)
+- [Coverage Matrix](#coverage-matrix)
+- [Error Classification & Retry Gating](#error-classification--retry-gating)
+  - [Two-Layer Error Model: Internal vs External](#two-layer-error-model-internal-vs-external)
+  - [Example Flow: Exception → Classification → Retry → HTTP Response](#example-flow-exception--classification--retry--http-response)
+- [Observability](#observability)
+  - [App-A: Error Classification Metrics](#app-a-error-classification-metrics)
+  - [App-B: Flow Counters & Latency Histograms](#app-b-flow-counters--latency-histograms)
+- [Quick Start](#quick-start)
+- [Pattern Inventory](#pattern-inventory)
+- [Failure Injection → Expected Results](#failure-injection--expected-results)
+- [Per-Scenario Detail](#per-scenario-detail)
+  - [Scenario 1: Baseline](#scenario-1-baseline)
+  - [Scenario 2: Retry — +Retry + Idempotency](#scenario-2-retry--retry--idempotency)
+  - [Scenario 3: Failfast — +Deadline + Bulkhead + Circuit Breaker](#scenario-3-failfast--deadline--bulkhead--circuit-breaker)
+  - [Scenario 4: Selfheal — +Keepalive + Channel Pool](#scenario-4-selfheal--keepalive--channel-pool)
+- [Configuration](#configuration)
+- [Project Structure](#project-structure)
+
+---
+
 ## The Four Scenarios
 
 | # | Name | Patterns added | Failure injection | Observable result |
@@ -64,7 +88,7 @@ circuit breaker**.
 
 ### Two-Layer Error Model: Internal vs External
 
-App-A separates **internal observability** from **external API contracts** using two error representations:
+App-A separates **internal observability** (semantic names like `CONNECTION_FAILURE` for metrics/retry decisions) from **external API contracts** (stable codes like `UNAVAILABLE` for HTTP responses). This lets internal telemetry evolve without breaking clients.
 
 #### Layer 1: ErrorReason (INTERNAL - semantic classification)
 
@@ -101,10 +125,6 @@ Used for external HTTP responses to Fortio client (maps closer to gRPC status na
 **Where used:** REST API `WorkResult` response, test verification scripts
 **Mapping logic:** `ErrorCode.fromGrpcStatus()` in catch blocks
 
-#### Why Two Layers?
-
-**Real-world pattern:** Internal uses semantic names (`CONNECTION_FAILURE`) for observability; external uses stable codes (`UNAVAILABLE`) for API contracts. This lets internal telemetry evolve without breaking clients.
-
 ---
 
 ### Example Flow: Exception → Classification → Retry → HTTP Response
@@ -126,12 +146,102 @@ EXTERNAL (HTTP API response):
 
 ---
 
-### Why This Matters
+## Observability
 
-- **Scenario 2 teaching preserved:** `BACKEND_ERROR` is retryable, so retry still reduces 30% → 3%
-- **Scenario 3 safety enforced:** Protection events are visible but NOT retried (prevents retry defeating CB/bulkhead)
-- **Observability win:** Error split by reason + retryable flag (clear root cause analysis)
-- **Real-world pattern:** Internal semantic classification separate from external API contracts
+### App-A: Error Classification Metrics
+
+**Metric:** `grpc_client_requests_total{method, service, reason, retryable, result}`
+
+**Purpose:** Semantic error classification for retry decisions and root cause analysis
+
+**Key labels:**
+- `reason`: ErrorReason (BACKEND_ERROR, TIMEOUT, CIRCUIT_OPEN, etc.)
+- `retryable`: "true" or "false" (drives retry decisions)
+- `result`: "SUCCESS" or "FAILURE"
+
+**Example queries:**
+```promql
+# Error rate by reason
+rate(grpc_client_requests_total{result="FAILURE"}[1m])
+
+# Retryable vs non-retryable failures
+sum by (retryable) (rate(grpc_client_requests_total{result="FAILURE"}[1m]))
+
+# Circuit breaker shed rate
+rate(grpc_client_requests_total{reason="CIRCUIT_OPEN"}[1m])
+```
+
+**Latency:** `grpc_client_latency_ms_seconds_bucket{method, service}`
+- Histogram for p50, p95, p99 calculations
+- Buckets: 0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, +Inf seconds
+
+---
+
+### App-B: Flow Counters & Latency Histograms
+
+**Flow counters** track request progression through the single-threaded worker:
+
+| Metric | Description |
+|---|---|
+| `b_requests_received_total` | All requests entering `Work()` handler (cache hits, fail injection, normal) |
+| `b_requests_started_total` | Requests that acquired the worker mutex (entered single-thread section) |
+| `b_requests_completed_total` | Successful completions (work done inside mutex) |
+| `b_requests_failed_total{reason}` | Failures by reason (`reason="fail_injection"`) |
+| `b_busy` | Worker utilization: 1 while holding mutex, 0 otherwise |
+
+**Metric relationships:**
+```
+received_total >= started_total + failed_total
+started_total  >= completed_total
+```
+
+**Derived quantities:**
+- **Queue depth** (waiting for mutex): `received - started - failed`
+- **Worker utilization**: `b_busy` (1=busy, 0=idle)
+
+**Latency histograms** preserve tail latency visibility:
+
+| Metric | Labels | Description |
+|---|---|---|
+| `b_request_latency_ms{outcome}` | `cache_hit`, `success`, `failure` | End-to-end handler latency (ms) — all code paths |
+| `b_processing_latency_ms{outcome}` | `success`, `failure` | Worker processing latency (ms) — mutex holders only |
+| `b_queue_wait_ms{outcome}` | `acquired` | Queue wait time (ms) — handler entry to mutex acquisition |
+
+**Latency relationships:**
+```
+b_request_latency_ms ≈ b_queue_wait_ms + b_processing_latency_ms  (for success path)
+```
+
+**Why separate histograms?**
+- Fast-fail paths (cache hits ~1ms, fail injection ~5ms) would wash out slow-path averages
+- Separate `outcome` labels preserve tail latency visibility (p95, p99)
+- Queue wait vs processing latency separation enables saturation diagnosis
+
+**Example queries:**
+```promql
+# p95 end-to-end latency by outcome
+histogram_quantile(0.95, sum by (outcome, le) (rate(b_request_latency_ms_bucket[1m])))
+
+# Queue depth (waiting for mutex)
+b_requests_received_total - b_requests_started_total - b_requests_failed_total
+
+# Worker utilization (should be near 1.0 under saturation)
+avg_over_time(b_busy[1m])
+
+# p99 queue wait time (high = saturation)
+histogram_quantile(0.99, sum by (le) (rate(b_queue_wait_ms_bucket[1m])))
+```
+
+**What to observe in each scenario:**
+
+| Scenario | App-A metrics | App-B metrics |
+|---|---|---|
+| Baseline | 30% `BACKEND_ERROR` | High queue wait (500-2000ms), `b_busy`≈1.0 |
+| Retry | 3% `BACKEND_ERROR` (retry working) | `received_total` > `started_total` (cache hits), `b_busy`≈1.0 |
+| Failfast | `CIRCUIT_OPEN` dominant (83% of traffic) | Low queue wait (CB sheds load before queuing), `b_busy`<1.0 |
+| Selfheal | Burst of `UNAVAILABLE` (t=15-45s) | Normal queue wait, self-heals after keepalive detection |
+
+See `apps/app-b/README.md` for complete Service B metrics documentation.
 
 ---
 
@@ -287,7 +397,7 @@ WorkReply reply = retry.executeSupplier(() ->
 
 **What you observe:**
 - `BACKEND_ERROR` visible errors: ~300 (down from 3,600)
-- `b_requests_total` at B: ~15,600 (up from 12,000) — dedup prevents duplicate work, but retry still amplifies network load
+- `b_requests_received_total` at B: ~15,600 (up from 12,000) — dedup prevents duplicate work, but retry still amplifies network load
 
 ---
 
