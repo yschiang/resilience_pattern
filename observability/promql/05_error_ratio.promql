@@ -1,0 +1,7 @@
+# Panel Title: Error Ratio (%)
+# Visualization: Single stat with threshold coloring
+100 * (
+  sum(rate(grpc_client_requests_total{service="demo-service-b",result="FAILURE"}[1m]))
+  /
+  sum(rate(grpc_client_requests_total{service="demo-service-b"}[1m]))
+)

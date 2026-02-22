@@ -1,0 +1,3 @@
+# Panel Title: Retryable Error Reasons (errors/sec)
+# Visualization: Pie chart or stacked area
+sum(rate(grpc_client_requests_total{service="demo-service-b",result="FAILURE",retryable="true"}[1m])) by (reason)

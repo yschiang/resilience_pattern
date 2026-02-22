@@ -1,0 +1,3 @@
+# Panel Title: P95 Latency (ms)
+# Visualization: Line chart
+histogram_quantile(0.95, sum(rate(grpc_client_latency_ms_bucket{service="demo-service-b"}[1m])) by (le))

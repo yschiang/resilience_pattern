@@ -61,6 +61,7 @@ public class AppABaseline implements AppAPort {
             long latency = System.currentTimeMillis() - startTime;
 
             errorCode = ErrorCode.SUCCESS;
+            metricsService.recordCall("Work", latency, null, null);
             metricsService.recordDownstreamCall(latency, errorCode);
 
             return new WorkResult(
@@ -74,6 +75,7 @@ public class AppABaseline implements AppAPort {
             errorCode = ErrorCode.fromGrpcStatus(e.getStatus().getCode());
             logger.error("gRPC call failed: {} -> {}", e.getStatus(), errorCode, e);
 
+            metricsService.recordCall("Work", latency, e, null);
             metricsService.recordDownstreamCall(latency, errorCode);
 
             return new WorkResult(
@@ -87,6 +89,7 @@ public class AppABaseline implements AppAPort {
             errorCode = ErrorCode.UNKNOWN;
             logger.error("Unexpected error calling B service: {}", errorCode, e);
 
+            metricsService.recordCall("Work", latency, e, null);
             metricsService.recordDownstreamCall(latency, errorCode);
 
             return new WorkResult(
