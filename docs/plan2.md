@@ -19,7 +19,7 @@ isolation before the next is added.
 | # | Name | Patterns added | Failure mode | Key lesson |
 |---|---|---|---|---|
 | 1 | Baseline | none | FAIL_RATE=0.3 (30% RESOURCE_EXHAUSTED) | Raw failure propagates end-to-end |
-| 2 | +Retry+Idempotency | gRPC retry policy, dedup in B | same | Retryable errors drop ~30% → ~3% |
+| 2 | +Retry+Idempotency | Resilience4j retry, dedup in B | same | Retryable errors drop ~30% → ~3% |
 | 3 | +Deadline+Bulkhead+CB | deadline, semaphore, Resilience4j CB | + B_DELAY_MS=200 (slow B) | Overload cascade severed |
 | 4 | +Keepalive+ChannelPool | keepalive, channel pool | + iptables tcp-reset | Connection failure self-heals |
 
@@ -58,7 +58,7 @@ not free; it must be paired with a circuit breaker.**
 
 | Pattern | Added in | File | Mechanism |
 |---|---|---|---|
-| gRPC retry | Scenario 2: Retry | AppARetry.java, AppAResilient.java | gRPC service config: maxAttempts=3, RESOURCE_EXHAUSTED |
+| Resilience4j retry | Scenario 2: Retry | AppARetry.java, AppAResilient.java | maxAttempts=3, waitDuration=50ms, classifier-based predicate |
 | Idempotency dedup | Scenario 2: Retry | app-b/main.go | seenRequests sync.Map keyed on req.Id, 30s TTL |
 | Deadline | Scenario 3: Failfast | AppAResilient.java | withDeadlineAfter(800ms) |
 | Bulkhead | Scenario 3: Failfast | AppAResilient.java | Semaphore.tryAcquire(MAX_INFLIGHT) |
