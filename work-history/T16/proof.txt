@@ -1,0 +1,14 @@
+# T16 DoD Proof
+
+## P1: Syntax check
+bash -n scripts/run_scenario.sh && echo "Syntax OK"
+Output: Syntax OK
+
+## P2: Usage line shown (no args)
+./scripts/run_scenario.sh 2>&1 | grep "Usage"
+Output: Usage: .../run_scenario.sh <1|2|3|4>
+
+## P3: Invalid arg rejected
+./scripts/run_scenario.sh 99 2>&1 | grep -i "error"
+Output: Error: argument must be 1, 2, 3, or 4 (got: 99)
+Exit: non-zero (exit 1)

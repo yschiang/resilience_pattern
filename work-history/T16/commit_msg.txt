@@ -1,0 +1,9 @@
+feat: rewrite run_scenario.sh with 4-scenario interface
+
+- New interface: ./scripts/run_scenario.sh <1|2|3|4>
+- Composes values-common.yaml + values-scenario<N>.yaml
+- Artifacts to tmp/artifacts/scenario<N>/
+- Scenario 3 uses C=80 for overload; Scenario 4 injects TCP fault at t=15s
+- Removes old <scenario> <mode> interface
+
+Fixes #24

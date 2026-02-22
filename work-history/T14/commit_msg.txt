@@ -1,0 +1,8 @@
+feat: add RetryBClient, RATE_LIMITED error code, retry service config
+
+- RESOURCE_EXHAUSTED now maps to RATE_LIMITED (retryable, not bulkhead)
+- RetryBClient activates when retry.enabled=true, resilience.enabled=false
+- BClient condition narrowed: only when both retry and resilience are false
+- ResilientBClient gains gRPC retry config for RESOURCE_EXHAUSTED
+
+Fixes #22

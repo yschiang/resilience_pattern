@@ -1,0 +1,20 @@
+# T13 DoD Proof
+
+## P1: docker build exit code
+docker build -t app-b:dev -f apps/app-b/Dockerfile .
+Exit code: 0
+
+## P2: FAIL_RATE env var parsing (≥3 required)
+grep -c "FAIL_RATE" apps/app-b/main.go
+Output: 4
+
+## P3: b_fail_rate metric emitted (≥1 required)
+grep "b_fail_rate" apps/app-b/main.go
+Output:
+	fmt.Fprintf(w, "# HELP b_fail_rate Configured failure injection rate\n")
+	fmt.Fprintf(w, "# TYPE b_fail_rate gauge\n")
+	fmt.Fprintf(w, "b_fail_rate %.2f\n", failRate)
+
+## P4: seenRequests idempotency (≥4 lines required)
+grep "seenRequests" apps/app-b/main.go | wc -l
+Output: 5

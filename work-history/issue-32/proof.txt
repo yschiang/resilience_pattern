@@ -1,0 +1,28 @@
+# Issue #32 DoD Proof
+
+## P1: docker build app-a:dev succeeds
+docker build -t app-a:dev -f apps/app-a/Dockerfile .
+Exit code: 0
+
+## P2: No compilation errors
+docker build ... 2>&1 | grep -iE "error|cannot find symbol"
+Output: (empty)
+
+## P3: Java file names changed (no BClient* files)
+ls apps/app-a/src/main/java/com/demo/appa/*.java | sort
+Output:
+  AppA.java
+  AppAPort.java
+  Application.java
+  ErrorCode.java
+  MetricsService.java
+  ResilientAppA.java
+  RetryAppA.java
+  WorkController.java
+  WorkResult.java
+
+(No BClient.java, BClientPort.java, RetryBClient.java, ResilientBClient.java)
+
+## P4: No BClient in active docs
+grep -r "BClient" README.md docs/plan2.md docs/runbook.md CONTRIBUTING.md | wc -l
+Output: 0

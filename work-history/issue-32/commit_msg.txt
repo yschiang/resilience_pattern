@@ -1,0 +1,16 @@
+refactor: rename BClient → AppA to clarify dual role
+
+App-a acts as both HTTP server and gRPC client. The old naming
+"BClient" was ambiguous (sounds like "B is a client"). New naming
+"AppA" is neutral and represents app-a's behavior regardless of role.
+
+Renames:
+- BClientPort → AppAPort
+- BClient → AppA
+- RetryBClient → RetryAppA
+- ResilientBClient → ResilientAppA
+
+Updated WorkController field: bClient → appA
+Updated documentation: README, plan2.md
+
+Fixes #32

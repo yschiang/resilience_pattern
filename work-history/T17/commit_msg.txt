@@ -1,0 +1,8 @@
+test: add verify_scenario{2,3,4}.sh for learning roadmap assertions
+
+- verify_scenario2.sh: C08/C09/C10 — retry reduces RATE_LIMITED errors
+- verify_scenario3.sh: C01/C02 — CB+bulkhead reduce latency and shed load
+- verify_scenario4.sh: C05/C06/C07 — self-heal after TCP reset
+- Mark old verify_s1.sh and verify_s4.sh as deprecated
+
+Fixes #25

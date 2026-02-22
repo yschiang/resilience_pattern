@@ -1,0 +1,7 @@
+feat: add FAIL_RATE injection and idempotency dedup to app-b
+
+- FAIL_RATE env var injects RESOURCE_EXHAUSTED at configured rate
+- seenRequests sync.Map deduplicates retried requests by ID
+- b_fail_rate gauge exposed at /metrics
+
+Fixes #21

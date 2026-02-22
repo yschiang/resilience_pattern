@@ -1,0 +1,6 @@
+feat: add values-scenario{1,2,3,4}.yaml for learning roadmap
+
+- Four cumulative scenario values files replace baseline/resilient binary
+- Old values files kept with deprecated header comments
+
+Fixes #23

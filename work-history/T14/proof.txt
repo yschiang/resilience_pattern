@@ -1,0 +1,20 @@
+# T14 DoD Proof
+
+## P1: RATE_LIMITED in ErrorCode
+grep "RATE_LIMITED" apps/app-a/src/main/java/com/demo/appa/ErrorCode.java
+Output:
+    RATE_LIMITED,
+                return RATE_LIMITED;
+
+## P2: RetryBClient file exists
+ls apps/app-a/src/main/java/com/demo/appa/RetryBClient.java
+Output: apps/app-a/src/main/java/com/demo/appa/RetryBClient.java
+
+## P3: application.yml has retry.enabled
+grep "retry" apps/app-a/src/main/resources/application.yml
+Output:
+retry:
+
+## P4: docker build app-a:dev
+docker build -t app-a:dev -f apps/app-a/Dockerfile .
+Exit code: 0

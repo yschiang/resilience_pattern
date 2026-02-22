@@ -1,0 +1,24 @@
+# T15 DoD Proof
+
+## P1: 4 new scenario files exist
+ls chart/values-scenario*.yaml | wc -l
+Output: 4
+Files:
+  chart/values-scenario1.yaml
+  chart/values-scenario2.yaml
+  chart/values-scenario3.yaml
+  chart/values-scenario4.yaml
+
+## P2: helm lint scenario1
+helm lint chart -f chart/values-common.yaml -f chart/values-scenario1.yaml
+Output:
+==> Linting chart
+[INFO] Chart.yaml: icon is recommended
+1 chart(s) linted, 0 chart(s) failed
+
+## P3: helm lint scenario4
+helm lint chart -f chart/values-common.yaml -f chart/values-scenario4.yaml
+Output:
+==> Linting chart
+[INFO] Chart.yaml: icon is recommended
+1 chart(s) linted, 0 chart(s) failed

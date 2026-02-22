@@ -1,0 +1,21 @@
+# T17 DoD Proof
+
+## P1: 3 new scripts exist
+ls tests/verify_scenario*.sh | wc -l
+Output: 3
+
+## P2: Syntax check all three
+bash -n tests/verify_scenario2.sh && echo "S2 OK"
+bash -n tests/verify_scenario3.sh && echo "S3 OK"
+bash -n tests/verify_scenario4.sh && echo "S4 OK"
+Output:
+S2 OK
+S3 OK
+S4 OK
+
+## P3: Deprecated headers present
+grep "DEPRECATED" tests/verify_s1.sh
+Output: # DEPRECATED: Use tests/verify_scenario3.sh instead (P5 learning roadmap)
+
+grep "DEPRECATED" tests/verify_s4.sh
+Output: # DEPRECATED: Use tests/verify_scenario4.sh instead (P5 learning roadmap)
