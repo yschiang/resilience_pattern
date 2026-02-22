@@ -11,7 +11,7 @@ order to watch each pattern's contribution in isolation.
 | # | Name | Patterns added | Failure injection | Observable result |
 |---|---|---|---|---|
 | 1 | Baseline | none | FAIL_RATE=0.3 | Raw failure propagates |
-| 2 | +Retry+Idempotency | gRPC retry, dedup in B | same | Retryable errors drop 30% → 3% |
+| 2 | +Retry+Idempotency | Resilience4j retry, dedup in B | same | Retryable errors drop 30% → 3% |
 | 3 | +Deadline+Bulkhead+CB | deadline, inflight limit, circuit breaker | + B_DELAY_MS=200 (slow B) | Fast-fail contains overload |
 | 4 | +Keepalive+ChannelPool | keepalive, channel pool | + iptables tcp-reset | Connection failure self-heals |
 
@@ -47,6 +47,94 @@ circuit breaker**.
 
 ---
 
+## Error Classification & Retry Gating
+
+**Error Classification** — `GrpcErrorClassifier` maps exceptions to semantic error reasons:
+- **Input:** `Throwable` + optional `contextHint` (e.g., "CIRCUIT_OPEN")
+- **Output:** `CallOutcome{reason, retryable, grpcStatus}`
+- **Location:** `apps/app-a/src/main/java/com/demo/appa/observability/GrpcErrorClassifier.java`
+
+**Retry Gating** — `RetryDecisionPolicy` uses classifier output to determine retry eligibility:
+- Uses `CallOutcome.retryable()` as retry predicate for Resilience4j Retry
+- **CRITICAL safety constraint:** Protection events (CIRCUIT_OPEN, BULKHEAD_REJECTED) NEVER retried
+- Unknown errors default to non-retryable (conservative fail-safe)
+- **Location:** `apps/app-a/src/main/java/com/demo/appa/retry/RetryDecisionPolicy.java`
+
+---
+
+### Two-Layer Error Model: Internal vs External
+
+App-A separates **internal observability** from **external API contracts** using two error representations:
+
+#### Layer 1: ErrorReason (INTERNAL - semantic classification)
+
+Used internally for metrics labels, retry decisions, and observability analysis.
+
+| ErrorReason | gRPC Status | Retryable? | Rationale | Scenario |
+|---|---|---|---|---|
+| `SUCCESS` | (no error) | N/A | — | All |
+| `BACKEND_ERROR` | RESOURCE_EXHAUSTED | ✅ **Yes** | Backend may recover after brief backoff | S2 |
+| `CONNECTION_FAILURE` | UNAVAILABLE | ✅ **Yes** | Transient network issue, reconnect may succeed | S4 |
+| `TIMEOUT` | DEADLINE_EXCEEDED | ❌ **No** | Deadline already exceeded; retry amplifies load | S3 |
+| `CIRCUIT_OPEN` | (protection event) | ❌ **No** | **Safety:** Retrying defeats circuit breaker | S3, S4 |
+| `BULKHEAD_REJECTED` | (protection event) | ❌ **No** | **Safety:** Retrying defeats bulkhead | S3, S4 |
+| `CLIENT_ERROR` | INVALID_ARGUMENT, etc. | ❌ **No** | Client-side bug; won't succeed on retry | All |
+| `SERVER_ERROR` | INTERNAL, DATA_LOSS, etc. | ❌ **No** | Backend bug; retry won't help | All |
+| `UNKNOWN` | UNKNOWN, unmapped | ❌ **No** | Conservative default for safety | All |
+
+**Where used:** Prometheus metrics (`reason` label), retry predicate, logging, root cause analysis
+**Classification logic:** `GrpcErrorClassifier.java:36-89`
+
+#### Layer 2: ErrorCode (EXTERNAL - HTTP API contract)
+Used for external HTTP responses to Fortio client (maps closer to gRPC status names).
+
+| ErrorCode | Maps from ErrorReason | HTTP Response | Where set |
+|---|---|---|---|
+| `SUCCESS` | SUCCESS | 200 OK | Success path |
+| `BACKEND_ERROR` | BACKEND_ERROR | 500 | B's FAIL_RATE |
+| `UNAVAILABLE` | CONNECTION_FAILURE | 503 | TCP reset |
+| `DEADLINE_EXCEEDED` | TIMEOUT | 504 | Deadline hit |
+| `QUEUE_FULL` | BULKHEAD_REJECTED | 503 | Bulkhead full |
+| `CIRCUIT_OPEN` | CIRCUIT_OPEN | 503 | CB rejection |
+| `UNKNOWN` | UNKNOWN, CLIENT_ERROR, SERVER_ERROR | 500 | Fallback |
+
+**Where used:** REST API `WorkResult` response, test verification scripts
+**Mapping logic:** `ErrorCode.fromGrpcStatus()` in catch blocks
+
+#### Why Two Layers?
+
+**Real-world pattern:** Internal uses semantic names (`CONNECTION_FAILURE`) for observability; external uses stable codes (`UNAVAILABLE`) for API contracts. This lets internal telemetry evolve without breaking clients.
+
+---
+
+### Example Flow: Exception → Classification → Retry → HTTP Response
+
+```
+INTERNAL (App-A observability):
+  gRPC exception: StatusRuntimeException(RESOURCE_EXHAUSTED)
+    → GrpcErrorClassifier.classify()
+    → CallOutcome{reason=BACKEND_ERROR, retryable=true}
+    → Metrics: grpc_client_requests_total{reason="BACKEND_ERROR", retryable="true"}
+    → RetryDecisionPolicy.shouldRetry() → true (retry allowed)
+    → (after retries exhaust...)
+
+EXTERNAL (HTTP API response):
+    → ErrorCode.fromGrpcStatus(RESOURCE_EXHAUSTED) → BACKEND_ERROR
+    → WorkResult{success=false, code="BACKEND_ERROR", latency=120}
+    → HTTP 500 response to Fortio client
+```
+
+---
+
+### Why This Matters
+
+- **Scenario 2 teaching preserved:** `BACKEND_ERROR` is retryable, so retry still reduces 30% → 3%
+- **Scenario 3 safety enforced:** Protection events are visible but NOT retried (prevents retry defeating CB/bulkhead)
+- **Observability win:** Error split by reason + retryable flag (clear root cause analysis)
+- **Real-world pattern:** Internal semantic classification separate from external API contracts
+
+---
+
 ## Quick Start
 
 ```bash
@@ -75,7 +163,7 @@ to `tmp/artifacts/scenarios/`.
 
 | Pattern | Added in | File | Mechanism |
 |---|---|---|---|
-| gRPC retry | Scenario 2: Retry | `AppARetry.java`, `AppAResilient.java` | gRPC service config: maxAttempts=3, retryable on `RESOURCE_EXHAUSTED` |
+| Resilience4j Retry | Scenario 2: Retry | `AppARetry.java`, `AppAResilient.java`, `RetryDecisionPolicy.java` | maxAttempts=3, waitDuration=50ms, classifier-based predicate (retries only errors marked `retryable=true`) |
 | Idempotency dedup | Scenario 2: Retry | `app-b/main.go` | `seenRequests sync.Map` keyed on `req.Id`, 30 s TTL |
 | Deadline | Scenario 3: Failfast | `AppAResilient.java` | `withDeadlineAfter(800ms)` |
 | Bulkhead | Scenario 3: Failfast | `AppAResilient.java` | `Semaphore.tryAcquire(MAX_INFLIGHT=10)` |
@@ -150,8 +238,10 @@ HTTP client: sees 3% BACKEND_ERROR (down from 30%)
 ```
 
 **Configuration:**
-- Client: `AppARetry` (gRPC retry only, no CB/bulkhead/deadline)
-- Retry policy: `maxAttempts=3`, `initialBackoff=0.05s`, retryable on `RESOURCE_EXHAUSTED`
+- Client: `AppARetry` (Resilience4j retry only, no CB/bulkhead/deadline)
+- Retry policy: `maxAttempts=3`, `waitDuration=50ms`, classifier-based gating
+  - **Retries:** `BACKEND_ERROR` (RESOURCE_EXHAUSTED), `CONNECTION_FAILURE` (UNAVAILABLE)
+  - **No retry:** `TIMEOUT`, `CLIENT_ERROR`, `SERVER_ERROR`, `UNKNOWN`
 - B behavior: same `FAIL_RATE=0.3`, `B_DELAY_MS=5` (still fast)
 
 **What happens (detail):**
@@ -161,12 +251,25 @@ HTTP client (200 QPS)
   → RetryAppA.callWork("abc-123")
 
   Attempt 1: WorkRequest{id="abc-123"} → RESOURCE_EXHAUSTED (30% chance)
-    ↓ gRPC retry (50ms backoff)
+    ↓ RetryDecisionPolicy: RESOURCE_EXHAUSTED → BACKEND_ERROR → retryable=true → RETRY
+    ↓ Resilience4j retry (50ms backoff)
   Attempt 2: WorkRequest{id="abc-123"} → B checks seenRequests["abc-123"]
     ↓ miss (first success) OR retry again
   Attempt 3: WorkRequest{id="abc-123"} → B checks seenRequests["abc-123"]
     ↓ cache HIT → returns cached reply (no duplicate work)
 ```
+
+**How retry gating works:**
+```java
+// AppARetry.java:60-63
+WorkReply reply = retry.executeSupplier(() ->
+    stub.work(WorkRequest.newBuilder().setId(requestId).build())
+);
+```
+- `retry` is Resilience4j Retry with predicate: `e -> retryPolicy.shouldRetry(e, null)`
+- `RetryDecisionPolicy` calls `GrpcErrorClassifier.classify(exception, null)`
+- If `CallOutcome.retryable() == true` → retry; else → fail immediately
+- `RESOURCE_EXHAUSTED` maps to `BACKEND_ERROR` → `retryable=true` → **retry happens**
 
 **Retry amplification math:**
 - Visible error rate drops: 30% → ~3% (0.3³ = 2.7%)
@@ -213,6 +316,35 @@ app-a: response or timeout
   ↓
 HTTP client: sees CIRCUIT_OPEN + QUEUE_FULL + DEADLINE_EXCEEDED (fast-fail)
 ```
+
+**Retry safety constraints:**
+
+When errors occur in the call chain above, `RetryDecisionPolicy` checks:
+```
+Error occurs
+  ↓
+GrpcErrorClassifier.classify(exception, contextHint)
+  ↓
+CallOutcome{reason=CIRCUIT_OPEN, retryable=false, ...}
+  ↓
+RetryDecisionPolicy.shouldRetry() → returns false
+  ↓
+NO RETRY (fail immediately)
+```
+
+**CRITICAL:** Protection events are NEVER retried:
+- `CIRCUIT_OPEN` (line 136) → contextHint="CIRCUIT_OPEN" → `retryable=false`
+- `QUEUE_FULL` (line 144) → contextHint="BULKHEAD_REJECTED" → `retryable=false`
+- `DEADLINE_EXCEEDED` → reason=TIMEOUT → `retryable=false`
+
+**Why this matters:**
+- Without this constraint, retry would defeat the circuit breaker (retry → CB opens → retry anyway → infinite loop)
+- Bulkhead rejection means "too much load" — retrying makes it worse
+- Timeouts already exceeded deadline — retrying amplifies load further
+
+**What IS retried in Scenario 3:**
+- `RESOURCE_EXHAUSTED` (BACKEND_ERROR) → still retried (transient B failure)
+- But: retry happens AFTER bulkhead check (line 172), so retries don't bypass semaphore
 
 **Configuration:**
 - Client: `AppAResilient` (full protection stack)
@@ -372,18 +504,6 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 
 ---
 
-## Error Taxonomy
-
-| Code | Returned by | When | Location |
-|---|---|---|---|
-| `BACKEND_ERROR` | **app-b** | Random 30% of requests (FAIL_RATE injection) | `main.go:55` → gRPC `RESOURCE_EXHAUSTED` → mapped in `ErrorCode.java:34` |
-| `DEADLINE_EXCEEDED` | **gRPC client** | Call exceeds 800 ms deadline | grpc-java runtime → caught in `AppAResilient.java:161` |
-| `QUEUE_FULL` | **app-a bulkhead** | Semaphore full (>10 inflight) | `AppAResilient.java:136` (tryAcquire fails) |
-| `CIRCUIT_OPEN` | **app-a circuit breaker** | Breaker state = OPEN | `AppAResilient.java:129` (Resilience4j) |
-| `UNAVAILABLE` | **gRPC client** | TCP connection dead/reset | grpc-java runtime → caught in `AppAResilient.java:161` |
-
----
-
 ## Configuration
 
 | Env var | Default | Purpose | Active from |
@@ -404,21 +524,31 @@ stubs.get(Math.abs(roundRobin.getAndIncrement() % channelPoolSize));
 .
 ├── apps/
 │   ├── app-a/              # Spring Boot: REST → gRPC, resilience patterns
+│   │   ├── observability/
+│   │   │   ├── GrpcErrorClassifier.java    # Exception → CallOutcome (semantic classification)
+│   │   │   ├── CallOutcome.java            # Record: {reason, retryable, grpcStatus}
+│   │   │   └── ErrorReason.java            # Enum: 9 semantic error categories
+│   │   └── retry/
+│   │       ├── RetryDecisionPolicy.java    # Classifier-based retry predicate
+│   │       └── RetryDecisionPolicyTest.java # 11 unit tests
 │   └── app-b/              # Go gRPC: single-threaded, FAIL_RATE, idempotency
 ├── chart/
 │   ├── values-common.yaml        # A=2, B=3 (immutable)
-│   ├── values-{baseline,retry,failfast,selfheal}.yaml  # P5 learning roadmap (use these)
-│   └── values-{baseline,resilient,s1,s4}.yaml  # deprecated
+│   └── values-{baseline,retry,failfast,selfheal}.yaml  # Scenario configurations
 ├── scripts/
-│   ├── run_scenario.sh     # ./run_scenario.sh <1|2|3|4>
-│   └── inject_s4.sh        # iptables TCP reset (used by scenario 4)
+│   ├── run_scenario.sh     # ./run_scenario.sh {baseline|retry|failfast|selfheal}
+│   └── inject_s4.sh        # iptables TCP reset (used by selfheal scenario)
 ├── tests/
-│   ├── verify_scenario{2,3,4}.sh  # P5 assertions (use these)
-│   └── verify_s{1,4}.sh           # deprecated
+│   ├── verify_retry.sh     # Scenario 2: retry verification (PASS=3 FAIL=0)
+│   ├── verify_failfast.sh  # Scenario 3: failfast verification (PASS=2 FAIL=0)
+│   └── verify_selfheal.sh  # Scenario 4: selfheal verification (PASS=3 FAIL=0)
 └── docs/
     ├── plan.md             # P0–P4 design history
     ├── plan2.md            # P5 learning roadmap design
-    └── runbook.md          # Step-by-step demo guide
+    ├── runbook.md          # Step-by-step demo guide
+    ├── workstream_observability.md               # Error classification design
+    ├── workstream_retry_gating.md                # Retry gating design
+    └── workstream_retry_gating_implementation_plan.md  # Retry gating implementation plan
 ```
 
 See `docs/plan2.md` for full roadmap design rationale.
