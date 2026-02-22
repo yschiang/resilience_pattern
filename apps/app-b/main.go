@@ -1,3 +1,20 @@
+// Service B: Intentionally single-threaded gRPC backend for resilience pattern demo.
+//
+// LEARNING: Why single-threaded?
+// - Demonstrates saturation and queueing behavior under overload
+// - ~5 RPS per pod capacity (3 pods = 15 RPS total) vs 200 QPS load = 13× overload
+// - Makes it easy to observe: queue buildup, tail latency, retry amplification, CB shedding
+//
+// Key patterns demonstrated:
+// - FAIL_RATE: Configurable retryable error injection (RESOURCE_EXHAUSTED)
+// - Idempotency: sync.Map cache with TTL prevents duplicate work on retry
+// - Observability: Flow counters + latency histograms with outcome labels
+// - Mutex worker: Single-threaded processing (intentional bottleneck)
+//
+// Metrics exposed on :8080/metrics:
+// - Flow counters: received/started/completed/failed (show queue depth)
+// - Latency histograms: request/processing/queue_wait (preserve tail latency)
+// - Busy gauge: worker utilization (1=saturated, 0=idle)
 package main
 
 import (
@@ -49,7 +66,21 @@ var (
 	requestsCompletedTotal int64 // b_requests_completed_total: successful completions
 	requestsFailedTotal    int64 // b_requests_failed_total{reason="fail_injection"}
 
-	// Latency histograms (ms) — registered with prometheus default registry
+	// LEARNING: Latency histograms with outcome labels preserve tail latency visibility.
+	// Why three separate histograms?
+	// - request_latency: End-to-end (includes queue wait + processing + cache hits)
+	// - processing_latency: Only mutex-protected work (pure service time)
+	// - queue_wait: Time waiting for mutex (shows saturation backlog)
+	//
+	// Why outcome labels?
+	// - Without labels, fast-fail paths (cache_hit, failure) wash out slow success tail latency
+	// - With labels, p99 success latency remains visible even when 50% traffic is cache hits
+	//
+	// Bucket design (1ms - 5000ms):
+	// - Lower buckets (1-50ms): Capture fast-path (cache hits, fail injection, normal processing)
+	// - Upper buckets (100-5000ms): Capture saturation (queue buildup under overload)
+	//
+	// Registered with prometheus default registry
 	requestLatencyHist = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "b_request_latency_ms",
@@ -83,8 +114,13 @@ type server struct {
 }
 
 func (s *server) Work(ctx context.Context, req *pb.WorkRequest) (*pb.WorkReply, error) {
-	// End-to-end latency: must be first defer (executes last, LIFO) to capture full duration.
-	// outcome is captured by reference so early-return paths can override it.
+	// LEARNING: Defer-based latency measurement exploits Go's LIFO execution order.
+	// First defer (declared here) executes LAST, capturing end-to-end duration including:
+	// - Cache hit path (early return, no mutex)
+	// - Fail injection path (early return, no mutex)
+	// - Full processing path (queue wait + mutex-protected work)
+	//
+	// Why capture outcome by reference? Early returns can override it (cache_hit, failure).
 	handlerStart := time.Now()
 	outcome := "success"
 	defer func() {
@@ -94,7 +130,10 @@ func (s *server) Work(ctx context.Context, req *pb.WorkRequest) (*pb.WorkReply, 
 	// Count every request entering the handler (cache hits, fail injection, normal)
 	atomic.AddInt64(&requestsReceivedTotal, 1)
 
-	// Idempotency: return cached reply if we've seen this ID
+	// LEARNING: Idempotency cache prevents duplicate work on retry.
+	// Client sends same requestId on retry → we return cached reply instantly.
+	// This is CRITICAL for Scenario 2: without it, retry would amplify load 3×.
+	// With it, retry attempts are free (cache hit, no mutex wait).
 	if req.GetId() != "" {
 		if cached, ok := seenRequests.Load(req.GetId()); ok {
 			if cached.(cachedReply).expires.After(time.Now()) {
@@ -104,7 +143,10 @@ func (s *server) Work(ctx context.Context, req *pb.WorkRequest) (*pb.WorkReply, 
 		}
 	}
 
-	// Retryable failure injection
+	// LEARNING: Retryable failure injection (RESOURCE_EXHAUSTED).
+	// Why this status code? It's classified as retryable by App-A's GrpcErrorClassifier.
+	// Scenario 2: 30% fail rate → client retries → visible errors drop to ~3% (0.3³).
+	// Injected BEFORE mutex acquisition so failures don't consume worker capacity.
 	if failRate > 0 && rand.Float64() < failRate {
 		// Count injected failures before early return (no mutex acquired)
 		atomic.AddInt64(&requestsFailedTotal, 1)
@@ -112,17 +154,25 @@ func (s *server) Work(ctx context.Context, req *pb.WorkRequest) (*pb.WorkReply, 
 		return nil, status.Errorf(codes.ResourceExhausted, "rate limited")
 	}
 
-	// Queue wait: measure time from here to mutex acquisition
+	// LEARNING: Queue wait measurement starts here, ends after mutex acquisition.
+	// Under overload (200 QPS → 15 RPS capacity), queue wait dominates latency:
+	// - Normal: queue_wait ~0ms, processing ~5ms
+	// - Saturated: queue_wait 500ms+, processing still ~5ms
 	queueStart := time.Now()
 
-	// Enforce single-thread processing
+	// LEARNING: Single-thread mutex enforces ~5 RPS capacity per pod.
+	// This is the INTENTIONAL BOTTLENECK that demonstrates saturation behavior.
+	// Without this, demo wouldn't show queue buildup, tail latency, or CB trip.
 	workerMutex.Lock()
 	defer workerMutex.Unlock()
 
 	// Observe queue wait immediately after acquiring mutex
 	queueWaitHist.WithLabelValues("acquired").Observe(float64(time.Since(queueStart).Milliseconds()))
 
-	// Processing latency: only observed for mutex holders (placed after Lock, executes before Unlock via LIFO)
+	// LEARNING: Processing latency defer placed AFTER mutex Lock.
+	// Go's LIFO defer order means this executes BEFORE Unlock (captures mutex-held time only).
+	// This isolates pure service time from queue wait, enabling us to prove:
+	//   request_latency = queue_wait + processing_latency
 	processingStart := time.Now()
 	processingOutcome := "success"
 	defer func() {
@@ -162,6 +212,16 @@ func (s *server) Work(ctx context.Context, req *pb.WorkRequest) (*pb.WorkReply, 
 	return reply, nil
 }
 
+// LEARNING: Metrics handler combines hand-rolled counters + promhttp histograms.
+// Why not use prometheus client for everything?
+// - Flow counters (received/started/completed/failed) need atomic increments in hot path
+// - Using prometheus.NewCounter would add registry lock contention
+// - Hand-rolled atomic.AddInt64 is lock-free and faster
+//
+// Why append promhttp output?
+// - Histograms (requestLatencyHist, etc.) are already registered with prometheus
+// - promhttp.HandlerFor() renders them in standard exposition format
+// - Single /metrics endpoint exposes both: hand-rolled counters + histogram buckets
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 
@@ -199,7 +259,13 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Read B_DELAY_MS from environment
+	// LEARNING: Configuration via environment variables enables per-scenario tuning.
+	// B_DELAY_MS: Processing time per request (default 5ms)
+	//   - Scenario 1-2: 5ms (fast B, capacity = 200 RPS/pod)
+	//   - Scenario 3: 200ms (slow B, capacity = 5 RPS/pod → demonstrates saturation)
+	// FAIL_RATE: Retryable error injection rate (default 0.0)
+	//   - Scenario 1-2: 0.3 (30% errors → demonstrates retry effectiveness)
+	//   - Scenario 3-4: 0.3 (combined with slow B → demonstrates CB trip)
 	delayMS = 5 // default
 	if envDelay := os.Getenv("B_DELAY_MS"); envDelay != "" {
 		if parsed, err := strconv.Atoi(envDelay); err == nil {
@@ -207,7 +273,6 @@ func main() {
 		}
 	}
 
-	// Read FAIL_RATE from environment
 	if envRate := os.Getenv("FAIL_RATE"); envRate != "" {
 		if parsed, err := strconv.ParseFloat(envRate, 64); err == nil {
 			failRate = parsed
@@ -216,7 +281,10 @@ func main() {
 
 	log.Printf("Starting app-b with B_DELAY_MS=%d FAIL_RATE=%.2f", delayMS, failRate)
 
-	// Cleanup goroutine: evict expired idempotency entries every 30s
+	// LEARNING: Cleanup goroutine prevents idempotency cache from growing unbounded.
+	// Why needed? Cache entries have 30s TTL but aren't auto-evicted on expiry.
+	// Without cleanup, memory usage grows linearly with request rate.
+	// This goroutine scans every 30s and deletes expired entries.
 	go func() {
 		for range time.Tick(30 * time.Second) {
 			seenRequests.Range(func(k, v any) bool {

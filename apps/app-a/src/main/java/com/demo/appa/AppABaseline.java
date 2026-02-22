@@ -16,6 +16,17 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 
+/**
+ * Scenario 1: Baseline - No resilience patterns.
+ *
+ * LEARNING: This shows what happens WITHOUT any protection:
+ * - Transient failures propagate directly to caller (no retry)
+ * - Slow backends cause cascading delays (no timeout)
+ * - Overload spreads to all threads (no bulkhead)
+ * - Connection failures take minutes to detect (no keepalive)
+ *
+ * Use this to understand the COST of not having resilience patterns.
+ */
 @Component
 @ConditionalOnExpression("'${resilience.enabled:false}' == 'false' && '${retry.enabled:false}' == 'false'")
 public class AppABaseline implements AppAPort {
@@ -33,6 +44,11 @@ public class AppABaseline implements AppAPort {
     @PostConstruct
     public void init() {
         logger.info("Initializing gRPC channel to B service: {}", bServiceUrl);
+        // LEARNING: Plain gRPC channel with NO resilience configuration:
+        // - No retry (transient failures are terminal)
+        // - No timeout (can wait indefinitely)
+        // - No keepalive (dead connections take ~11 minutes to detect via OS TCP)
+        // - Single channel (connection reset affects all inflight requests)
         channel = ManagedChannelBuilder.forTarget(bServiceUrl)
                 .usePlaintext()
                 .build();
@@ -51,12 +67,17 @@ public class AppABaseline implements AppAPort {
         long startTime = System.currentTimeMillis();
         ErrorCode errorCode = ErrorCode.UNKNOWN;
 
+        // LEARNING: Inflight tracking shows thread blocking but does NOT limit concurrency.
+        // Without a bulkhead, all client threads can block waiting for slow B.
         metricsService.incrementInflight();
         try {
             WorkRequest request = WorkRequest.newBuilder()
                     .setId(requestId)
                     .build();
 
+            // LEARNING: Synchronous blocking call with NO timeout.
+            // If B is slow (200ms in Scenario 3), this thread waits.
+            // If B is unresponsive, this thread waits indefinitely.
             WorkReply reply = blockingStub.work(request);
             long latency = System.currentTimeMillis() - startTime;
 
@@ -71,6 +92,9 @@ public class AppABaseline implements AppAPort {
                     errorCode
             );
         } catch (StatusRuntimeException e) {
+            // LEARNING: Failures propagate directly to caller - no retry, no recovery.
+            // In Scenario 1 (FAIL_RATE=0.3), 30% of calls fail here and return immediately.
+            // In Scenario 2 (retry enabled), these same errors get retried → 30% drops to ~3%.
             long latency = System.currentTimeMillis() - startTime;
             errorCode = ErrorCode.fromGrpcStatus(e.getStatus().getCode());
             logger.error("gRPC call failed: {} -> {}", e.getStatus(), errorCode, e);
