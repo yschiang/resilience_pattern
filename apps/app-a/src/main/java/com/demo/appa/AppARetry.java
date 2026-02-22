@@ -1,8 +1,11 @@
 package com.demo.appa;
 
+import com.demo.appa.retry.RetryDecisionPolicy;
 import com.demo.grpc.DemoServiceGrpc;
 import com.demo.grpc.WorkReply;
 import com.demo.grpc.WorkRequest;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
@@ -13,48 +16,57 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.util.List;
-import java.util.Map;
+import java.time.Duration;
 
 @Component
 @ConditionalOnExpression("'${retry.enabled:false}' == 'true' && '${resilience.enabled:false}' == 'false'")
 public class AppARetry implements AppAPort {
 
-    @Value("${b.service.url}") private String bServiceUrl;
-    @Autowired private MetricsService metricsService;
+    @Value("${b.service.url}")
+    private String bServiceUrl;
+
+    @Autowired
+    private MetricsService metricsService;
+
+    @Autowired
+    private RetryDecisionPolicy retryPolicy;
 
     private ManagedChannel channel;
     private DemoServiceGrpc.DemoServiceBlockingStub stub;
+    private Retry retry;
 
     @PostConstruct
     public void init() {
-        Map<String, Object> retryPolicy = Map.of(
-            "maxAttempts", "3",
-            "initialBackoff", "0.05s",
-            "maxBackoff", "0.5s",
-            "backoffMultiplier", 2.0,
-            "retryableStatusCodes", List.of("RESOURCE_EXHAUSTED")
-        );
-        Map<String, Object> serviceConfig = Map.of(
-            "methodConfig", List.of(Map.of("name", List.of(Map.of()), "retryPolicy", retryPolicy))
-        );
+        // Plain gRPC channel without retry config (retry handled by Resilience4j)
         channel = ManagedChannelBuilder.forTarget(bServiceUrl)
             .usePlaintext()
-            .defaultServiceConfig(serviceConfig)
-            .enableRetry()
             .build();
         stub = DemoServiceGrpc.newBlockingStub(channel);
+
+        // Resilience4j Retry with classifier-based predicate
+        RetryConfig retryConfig = RetryConfig.custom()
+            .maxAttempts(3)
+            .waitDuration(Duration.ofMillis(50))
+            .retryOnException(e -> retryPolicy.shouldRetry(e, null))
+            .build();
+        retry = Retry.of("app-a-retry", retryConfig);
     }
 
     @Override
     public WorkResult callWork(String requestId) {
         long start = System.currentTimeMillis();
+
         try {
-            WorkReply reply = stub.work(WorkRequest.newBuilder().setId(requestId).build());
+            // Wrap gRPC call with Resilience4j retry
+            WorkReply reply = retry.executeSupplier(() ->
+                stub.work(WorkRequest.newBuilder().setId(requestId).build())
+            );
+
             long latency = System.currentTimeMillis() - start;
             metricsService.recordCall("Work", latency, null, null);
             metricsService.recordDownstreamCall(latency, ErrorCode.SUCCESS);
             return new WorkResult(true, "SUCCESS", latency, ErrorCode.SUCCESS);
+
         } catch (StatusRuntimeException e) {
             long latency = System.currentTimeMillis() - start;
             ErrorCode code = ErrorCode.fromGrpcStatus(e.getStatus().getCode());
@@ -65,5 +77,7 @@ public class AppARetry implements AppAPort {
     }
 
     @PreDestroy
-    public void shutdown() { channel.shutdown(); }
+    public void shutdown() {
+        channel.shutdown();
+    }
 }

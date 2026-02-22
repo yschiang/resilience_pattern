@@ -1,11 +1,15 @@
 package com.demo.appa;
 
+import com.demo.appa.retry.RetryDecisionPolicy;
 import com.demo.grpc.DemoServiceGrpc;
 import com.demo.grpc.WorkReply;
 import com.demo.grpc.WorkRequest;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
@@ -21,7 +25,6 @@ import javax.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -46,11 +49,15 @@ public class AppAResilient implements AppAPort {
     @Autowired
     private MetricsService metricsService;
 
+    @Autowired
+    private RetryDecisionPolicy retryPolicy;
+
     private List<ManagedChannel> channels;
     private List<DemoServiceGrpc.DemoServiceBlockingStub> stubs;
     private final AtomicInteger roundRobin = new AtomicInteger(0);
     private Semaphore semaphore;
     private CircuitBreaker circuitBreaker;
+    private Retry retry;
 
     @PostConstruct
     public void init() {
@@ -58,17 +65,7 @@ public class AppAResilient implements AppAPort {
                 bServiceUrl, deadlineMs, maxInflight, channelPoolSize);
         logger.info("gRPC keepalive: keepAliveTime=30s, keepAliveTimeout=10s, keepAliveWithoutCalls=true");
 
-        Map<String, Object> retryPolicy = Map.of(
-                "maxAttempts", "3",
-                "initialBackoff", "0.05s",
-                "maxBackoff", "0.5s",
-                "backoffMultiplier", 2.0,
-                "retryableStatusCodes", List.of("RESOURCE_EXHAUSTED")
-        );
-        Map<String, Object> serviceConfig = Map.of(
-                "methodConfig", List.of(Map.of("name", List.of(Map.of()), "retryPolicy", retryPolicy))
-        );
-
+        // gRPC channels with keepalive (no retry config - handled by Resilience4j)
         channels = new ArrayList<>(channelPoolSize);
         stubs = new ArrayList<>(channelPoolSize);
         for (int i = 0; i < channelPoolSize; i++) {
@@ -77,9 +74,7 @@ public class AppAResilient implements AppAPort {
                     .keepAliveTime(30, TimeUnit.SECONDS)
                     .keepAliveTimeout(10, TimeUnit.SECONDS)
                     .keepAliveWithoutCalls(true)
-                    .defaultServiceConfig(serviceConfig)
-                    .enableRetry()
-                    .build();
+                    .build();  // No retry config
             channels.add(ch);
             stubs.add(DemoServiceGrpc.newBlockingStub(ch));
         }
@@ -88,6 +83,7 @@ public class AppAResilient implements AppAPort {
 
         semaphore = new Semaphore(maxInflight);
 
+        // Circuit Breaker
         CircuitBreakerConfig config = CircuitBreakerConfig.custom()
                 .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
                 .slidingWindowSize(10)
@@ -110,6 +106,20 @@ public class AppAResilient implements AppAPort {
             metricsService.setBreakerState(stateCode);
             logger.info("Circuit breaker B state -> {} ({})", state, stateCode);
         });
+
+        // Resilience4j Retry with classifier-based predicate
+        RetryConfig retryConfig = RetryConfig.custom()
+                .maxAttempts(3)
+                .waitDuration(Duration.ofMillis(50))
+                .retryOnException(e -> {
+                    // Do NOT retry CallNotPermittedException (circuit breaker rejection)
+                    if (e instanceof CallNotPermittedException) {
+                        return false;
+                    }
+                    return retryPolicy.shouldRetry(e, null);
+                })
+                .build();
+        retry = Retry.of("app-a-resilient-retry", retryConfig);
     }
 
     @PreDestroy
@@ -157,9 +167,12 @@ public class AppAResilient implements AppAPort {
                     .setId(requestId)
                     .build();
 
-            WorkReply reply = stub
-                    .withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
-                    .work(request);
+            // Wrap gRPC call with Resilience4j retry
+            // Retry happens AFTER bulkhead check (inside semaphore protection)
+            WorkReply reply = retry.executeSupplier(() ->
+                stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
+                    .work(request)
+            );
 
             long latency = System.currentTimeMillis() - startTime;
             errorCode = ErrorCode.SUCCESS;
