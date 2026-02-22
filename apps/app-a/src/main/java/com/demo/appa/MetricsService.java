@@ -1,12 +1,17 @@
 package com.demo.appa;
 
+import com.demo.appa.observability.CallOutcome;
+import com.demo.appa.observability.GrpcErrorClassifier;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -16,6 +21,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class MetricsService {
     private final MeterRegistry registry;
+
+    @Autowired
+    private GrpcErrorClassifier classifier;
     private final Timer downstreamLatency;
     private final AtomicInteger inflightRequests;
     private final AtomicInteger breakerState;
@@ -74,6 +82,37 @@ public class MetricsService {
                 .tag("code", errorCode.name())
                 .register(registry)
                 .increment();
+    }
+
+    /**
+     * Record a gRPC client call outcome (Workstream A standardized metrics).
+     *
+     * @param method gRPC method name (e.g., "Work")
+     * @param latencyMs Call latency in milliseconds
+     * @param error Exception thrown, or null for success
+     * @param contextHint Optional hint for protection events (e.g., "CIRCUIT_OPEN")
+     */
+    public void recordCall(String method, long latencyMs, @Nullable Throwable error, @Nullable String contextHint) {
+        CallOutcome outcome = classifier.classify(error, contextHint);
+
+        // Counter: grpc_client_requests_total
+        Counter.builder("grpc_client_requests_total")
+            .description("Total gRPC client requests")
+            .tag("service", "demo-service-b")
+            .tag("method", method)
+            .tag("result", outcome.resultLabel())
+            .tag("reason", outcome.reason().name())
+            .tag("retryable", String.valueOf(outcome.retryable()))
+            .register(registry)
+            .increment();
+
+        // Histogram: grpc_client_latency_ms
+        Timer.builder("grpc_client_latency_ms")
+            .description("gRPC client request latency")
+            .tag("service", "demo-service-b")
+            .tag("method", method)
+            .register(registry)
+            .record(latencyMs, TimeUnit.MILLISECONDS);
     }
 
     /**

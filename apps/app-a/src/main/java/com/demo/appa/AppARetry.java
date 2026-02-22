@@ -52,11 +52,13 @@ public class AppARetry implements AppAPort {
         try {
             WorkReply reply = stub.work(WorkRequest.newBuilder().setId(requestId).build());
             long latency = System.currentTimeMillis() - start;
+            metricsService.recordCall("Work", latency, null, null);
             metricsService.recordDownstreamCall(latency, ErrorCode.SUCCESS);
             return new WorkResult(true, "SUCCESS", latency, ErrorCode.SUCCESS);
         } catch (StatusRuntimeException e) {
             long latency = System.currentTimeMillis() - start;
             ErrorCode code = ErrorCode.fromGrpcStatus(e.getStatus().getCode());
+            metricsService.recordCall("Work", latency, e, null);
             metricsService.recordDownstreamCall(latency, code);
             return new WorkResult(false, code.name(), latency, code);
         }

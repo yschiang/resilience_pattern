@@ -1,0 +1,3 @@
+# Panel Title: Retryable vs Non-Retryable Errors (errors/sec)
+# Visualization: Stacked bar chart
+sum(rate(grpc_client_requests_total{service="demo-service-b",result="FAILURE"}[1m])) by (retryable)

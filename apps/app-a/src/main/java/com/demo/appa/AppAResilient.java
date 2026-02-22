@@ -125,6 +125,7 @@ public class AppAResilient implements AppAPort {
         // Check circuit breaker first
         if (!circuitBreaker.tryAcquirePermission()) {
             logger.warn("Circuit breaker OPEN for request {}", requestId);
+            metricsService.recordCall("Work", 0, null, "CIRCUIT_OPEN");
             metricsService.recordDownstreamCall(0, ErrorCode.CIRCUIT_OPEN);
             return new WorkResult(false, ErrorCode.CIRCUIT_OPEN.name(), 0, ErrorCode.CIRCUIT_OPEN);
         }
@@ -133,6 +134,7 @@ public class AppAResilient implements AppAPort {
         if (!semaphore.tryAcquire()) {
             circuitBreaker.releasePermission();
             logger.warn("Bulkhead full (QUEUE_FULL) for request {}", requestId);
+            metricsService.recordCall("Work", 0, null, "BULKHEAD_REJECTED");
             metricsService.recordDownstreamCall(0, ErrorCode.QUEUE_FULL);
             return new WorkResult(false, ErrorCode.QUEUE_FULL.name(), 0, ErrorCode.QUEUE_FULL);
         }
@@ -157,6 +159,7 @@ public class AppAResilient implements AppAPort {
             long latency = System.currentTimeMillis() - startTime;
             errorCode = ErrorCode.SUCCESS;
             circuitBreaker.onSuccess(latency, TimeUnit.MILLISECONDS);
+            metricsService.recordCall("Work", latency, null, null);
             metricsService.recordDownstreamCall(latency, errorCode);
 
             return new WorkResult(reply.getOk(), reply.getCode(), latency, errorCode);
@@ -166,6 +169,7 @@ public class AppAResilient implements AppAPort {
             errorCode = ErrorCode.fromGrpcStatus(e.getStatus().getCode());
             logger.error("gRPC call failed: {} -> {}, requestId={}", e.getStatus(), errorCode, requestId);
             circuitBreaker.onError(latency, TimeUnit.MILLISECONDS, e);
+            metricsService.recordCall("Work", latency, e, null);
             metricsService.recordDownstreamCall(latency, errorCode);
 
             return new WorkResult(false, errorCode.name(), latency, errorCode);
@@ -175,6 +179,7 @@ public class AppAResilient implements AppAPort {
             errorCode = ErrorCode.UNKNOWN;
             logger.error("Unexpected error calling B service, requestId={}", requestId, e);
             circuitBreaker.onError(latency, TimeUnit.MILLISECONDS, e);
+            metricsService.recordCall("Work", latency, e, null);
             metricsService.recordDownstreamCall(latency, errorCode);
 
             return new WorkResult(false, errorCode.name(), latency, errorCode);
