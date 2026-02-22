@@ -6,8 +6,58 @@ order to watch each pattern's contribution in isolation.
 
 ---
 
+## Executive Summary
+
+### 1) 架構 / 訊息流
+- Client → (REST) → Service A（Java/Spring）→ (gRPC) → Service B（Go backend）
+- Service A 使用 **shared gRPC connection（with keepalive）**；當 **下游服務（B）或 A→B connection** 有問題時，故障可能被放大
+- Service B 在 K8s 用 **多 pods + single-threaded（mutex worker）**
+
+### 2) Repo 刻意暴露的 failure patterns
+
+1. **Correlated failure（同一批請求一起 fail / 一起變慢）**
+   - **POD B failure**：某個 B pod 飽和/卡住 → 打到該 pod 的請求一起慢/一起錯
+   - **POD A failure**：A pod 自己資源耗盡/卡住 → 從 A 看幾乎所有請求一起慢/一起 timeout/一起被拒
+   - **Conn failure（shared conn / network）**：shared channel 半死或網路異常 → 一段時間大量請求一起爆、重建後快速恢復
+     （例：DNS/CoreDNS 異常、LB idle timeout、TCP RST、網路丟包/高延遲等）
+
+2. **故障擴散**：問題持續期間 A 仍收新流量 → blast radius 變大
+
+### 3) Repo demo 的 patterns
+
+1. **Retry（with Idempotency）**
+   降低可重試錯誤的 visible error rate
+   （無 circuit breaker 時可能反而加重 load → retry amplification）
+
+2. **Fail-fast：Bulkhead / Inflight + Circuit Breaker + Deadline**
+   request level 的「排隊拖死」變成「可控拒絕」
+   （透過 deadline 與 inflight limit 控制等待與 queue；deadline 於 Resilient scenario 導入）
+
+3. **Self-heal：Keepalive / Heartbeat + Connection Pool**
+   connection level 縮短半死連線影響、加速恢復
+
+### 4) Observability
+- **Service A**
+  - tx（total received, started, failed）
+  - latency（success latency, failure latency）
+
+- **Service B**
+  - busy utilization signal（可用 PromQL 推導 busy ratio）
+
+### 5) Repo 也 demo 的 AI coding workflow（clinerules, skills）
+
+**Architect:**
+- by **project** 定義流程結構（branch / PR template / merge rules / review checklist）
+- by **feature** 拆 task、撰寫 plan → 定義 acceptance / DoD → PR review
+
+**Developer:**
+- by **feature** 拉出 branch → 多 commits → tests → PR（附 evidence）
+
+---
+
 ## Table of Contents
 
+- [Executive Summary](#executive-summary)
 - [The Four Scenarios](#the-four-scenarios)
 - [Architecture](#architecture)
 - [Coverage Matrix](#coverage-matrix)
@@ -17,6 +67,8 @@ order to watch each pattern's contribution in isolation.
 - [Observability](#observability)
   - [App-A: Error Classification Metrics](#app-a-error-classification-metrics)
   - [App-B: Flow Counters & Latency Histograms](#app-b-flow-counters--latency-histograms)
+- [Production Considerations](#production-considerations)
+  - [Idempotency: Demo Simplification vs Real-World Requirements](#idempotency-demo-simplification-vs-real-world-requirements)
 - [Quick Start](#quick-start)
 - [Pattern Inventory](#pattern-inventory)
 - [Failure Injection → Expected Results](#failure-injection--expected-results)
@@ -242,6 +294,41 @@ histogram_quantile(0.99, sum by (le) (rate(b_queue_wait_ms_bucket[1m])))
 | Selfheal | Burst of `UNAVAILABLE` (t=15-45s) | Normal queue wait, self-heals after keepalive detection |
 
 See `apps/app-b/README.md` for complete Service B metrics documentation.
+
+---
+
+## Production Considerations
+
+### Idempotency: Demo Simplification vs Real-World Requirements
+
+**Demo implementation:**
+- App-B uses local in-memory cache (`sync.Map`) per pod with 30s TTL
+- App-A generates `requestId` per request
+- 3 App-B pods with random load balancing
+
+**Limitation:** With random load balancing across 3 pods, only ~33% of retry attempts hit the same backend pod where the result was cached. The remaining retries miss the cache and reprocess the request.
+
+**Why this is acceptable for learning:**
+- Demonstrates the **pattern** (check cache → process → store result)
+- Shows **why** idempotency matters (prevents retry amplification)
+- Avoids infrastructure complexity (Redis, database) that distracts from resilience pattern learning
+
+**Real-world idempotency patterns:**
+
+| Pattern | Description | Example |
+|---|---|---|
+| **Shared Cache** | Redis/Memcached shared by all backend pods | Stripe API, Slack webhooks |
+| **Database Deduplication** | Unique constraint on `(user_id, idempotency_key)` table; duplicate insert fails → return cached result | Payment systems, order processing |
+| **Client-Generated Keys** | Idempotency key originates from end client (browser/mobile app UUID), not service layer | AWS API Gateway, Stripe Idempotency-Key header |
+| **Session Affinity** | Load balancer pins client → same backend pod (enables local cache) | Reduces resilience (can't failover easily) |
+
+**Production requirement:** Idempotency keys must come from the **end client** (user's browser, mobile app), not App-A. When a user clicks "Submit Order":
+1. Client generates UUID (e.g., `order-12345-uuid`)
+2. All retry attempts (across any App-A pod, any App-B pod) carry the same UUID
+3. Backend checks shared state (Redis/DB) before processing
+4. Duplicate requests return cached result without reprocessing
+
+**Demo simplification:** App-A generates `requestId` to demonstrate retry mechanics without requiring a client layer. In production, this ID would flow from the originating user request.
 
 ---
 
